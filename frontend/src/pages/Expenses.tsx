@@ -5,7 +5,7 @@ import { money } from '../utils/format';
 
 const columns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
-  ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
+  ['stores', 'Магазины'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'],
 ] as const;
 type Column = typeof columns[number][0];
@@ -32,7 +32,8 @@ export function Expenses() {
 
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
-    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value) : value;
+    if (column === 'stores') return <div className="store-list">{item.stores.map((store) => <span key={store}>{store}</span>)}</div>;
+    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
 
   return <>

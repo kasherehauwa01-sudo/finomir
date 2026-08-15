@@ -16,3 +16,4 @@
 .copy-feedback--error{color:#b42318!important}
 
 @media(max-width:700px){.settings-card{padding:18px;gap:12px}.settings-card__icon{flex-basis:38px;height:38px}.copy-field{padding:13px}.mobile-nav{gap:2px}.mobile-nav a{padding:8px 5px;font-size:12px}}
+.store-list{display:grid;gap:4px}.modal-actions{display:flex;justify-content:flex-end;gap:10px}.modal-actions>button:not(.primary){border:1px solid #d7dce5;background:#fff;border-radius:10px;padding:13px 20px;font-weight:600}

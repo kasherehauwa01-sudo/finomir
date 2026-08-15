@@ -26,6 +26,10 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const input = useRef<HTMLInputElement>(null);
 
+  function requestClose() {
+    if (window.confirm('Закрыть окно? Несохраненные данные будут потеряны.')) close();
+  }
+
   useEffect(() => {
     Promise.all([
       api<Partner[]>('/partners'),
@@ -142,7 +146,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
 
   return <div className="overlay" role="dialog" aria-modal="true">
     <section className="modal">
-      <button className="close" type="button" onClick={close} aria-label="Закрыть">×</button>
+      <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
       <h2>{mode === 'choice' ? 'Как добавить расход?' : mode === 'ocr' ? 'Распознавание счета' : 'Новый расход'}</h2>
       {mode === 'choice' && <div className="choices">
         <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => input.current?.click()); }}>📷<b>Автоматически</b><small>Сфотографировать или загрузить счёт</small></button>
@@ -173,7 +177,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           </div>)}
           <button type="button" className="link" onClick={addAllocation}>+ Добавить магазин</button>
         </fieldset>
-        <button className="primary" disabled={busy}>Сохранить расход</button>
+        <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
       </form>}
     </section>
   </div>;
