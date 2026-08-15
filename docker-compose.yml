@@ -16,7 +16,7 @@ services:
     healthcheck: {test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"], interval: 15s, timeout: 5s, retries: 5}
     restart: unless-stopped
   frontend:
-    build: {context: ./frontend, args: {VITE_BASE_PATH: "${VITE_BASE_PATH:-/}"}}
+    build: {context: ./frontend, args: {VITE_BASE_PATH: "${VITE_BASE_PATH:-/vr/finomir/}"}}
     ports: ["127.0.0.1:8080:80"]
     depends_on: {backend: {condition: service_healthy}}
     restart: unless-stopped

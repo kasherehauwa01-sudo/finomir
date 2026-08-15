@@ -2,6 +2,8 @@
 
 Production-oriented modular monolith для учета цепочки **партнер → контрагент → расход → счет → платежи**. Денежные значения обрабатываются `Decimal`/`NUMERIC(15,2)`, документы находятся вне PostgreSQL в persistent volume.
 
+Целевой production URL: **https://kvasmix.ru/vr/finomir/**.
+
 ## Архитектура и стек
 - `backend/`: FastAPI, SQLAlchemy 2, Pydantic, PostgreSQL, Alembic; раздельные models, schemas, routes, repositories и services (finance, storage, OCR, export/audit).
 - `frontend/`: React, TypeScript, Vite; pages, components, API client, hooks, types и utilities. Адаптивный реестр и mobile-first загрузка с `capture`.
@@ -11,7 +13,7 @@ Production-oriented modular monolith для учета цепочки **парт
 ## Локальный запуск
 ```bash
 cp .env.example .env
-# замените пароли; для корня оставьте BASE_PATH=/ и VITE_BASE_PATH=/
+# замените пароли; base path уже настроен на /vr/finomir/
 docker compose build
 docker compose up -d postgres backend
 docker compose exec backend alembic upgrade head
