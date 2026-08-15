@@ -4,14 +4,10 @@ export function Layout() {
   return (
     <>
       <header>
-        <div className="brand">
-          <span>Ф</span>
-          <strong>Финомир</strong>
-        </div>
         <nav aria-label="Основная навигация">
           <NavLink to="/">Дашборд</NavLink>
           <NavLink to="/expenses">Расходы</NavLink>
-          <NavLink to="/partners">Справочники</NavLink>
+          <NavLink to="/directories">Справочники</NavLink>
           <NavLink to="/settings">Настройки</NavLink>
         </nav>
       </header>
@@ -21,7 +17,7 @@ export function Layout() {
       <nav className="mobile-nav" aria-label="Мобильная навигация">
         <NavLink to="/">Обзор</NavLink>
         <NavLink to="/expenses">Расходы</NavLink>
-        <NavLink to="/partners">Справочники</NavLink>
+        <NavLink to="/directories">Справочники</NavLink>
         <NavLink to="/settings">Настройки</NavLink>
       </nav>
     </>
