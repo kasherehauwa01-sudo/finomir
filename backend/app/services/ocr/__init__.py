@@ -1,2 +1,3 @@
 from .disabled import DisabledOCRProvider
-def get_provider(name:str): return DisabledOCRProvider()
+from .tesseract import TesseractOCRProvider
+def get_provider(name:str): return TesseractOCRProvider() if name == "tesseract" else DisabledOCRProvider()

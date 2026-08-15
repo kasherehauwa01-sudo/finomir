@@ -61,7 +61,7 @@ def create_tag(data:TagIn,db:Session=Depends(get_db)):
 def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
  items,total=ExpenseRepository(db).list(page,page_size,search); out=[]
  for x in items:
-  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
+  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):

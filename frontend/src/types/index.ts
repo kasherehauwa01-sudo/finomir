@@ -1,4 +1,4 @@
-export type Expense = { id: string; period: string; partner: string; counterparty: string; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
+export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type Partner = { id: string; name: string; comment?: string };
 export type Counterparty = { id: string; partner_id: string; full_name: string; short_name?: string; entity_type: string; inn?: string; kpp?: string };
