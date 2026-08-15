@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Directories } from './pages/Directories';
 import { Expenses } from './pages/Expenses';
+import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
 import './styles.css';
 
@@ -17,6 +18,7 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/expenses" element={<Expenses />} />
+          <Route path="/expenses/:expenseId" element={<ExpenseCard />} />
           <Route path="/directories" element={<Directories />} />
           <Route path="/directories/:directory" element={<Directories />} />
           <Route path="/partners" element={<Directories />} />
