@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 const columns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
   ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
-  ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'],
+  ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Закрывающий документ'],
 ] as const;
 type Column = typeof columns[number][0];
 
@@ -35,6 +35,7 @@ export function Expenses() {
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
     if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((value) => <span key={value}>{value}</span>)}</div>;
+    if (column === 'has_invoice_document' || column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'} aria-label={value ? 'Документ загружен' : 'Документ отсутствует'}>{value ? '✓' : '×'}</span>;
     return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
 
