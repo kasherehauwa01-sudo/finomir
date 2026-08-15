@@ -114,7 +114,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         body: JSON.stringify({
           partner_id: partnerId, counterparty_id: counterpartyId, service_name: serviceName,
           expense_month: month, expense_year: year,
-          allocations: allocations.filter((item) => item.store_id && Number(item.amount) > 0),
+          allocations: allocations.filter((item) => item.store_id).map((item) => ({ ...item, amount: item.amount || '0' })),
         }),
       });
       if (invoiceAmount) {
