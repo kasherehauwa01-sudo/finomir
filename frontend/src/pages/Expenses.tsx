@@ -2,15 +2,17 @@ import { useMemo, useState } from 'react';
 import { ExpenseModal } from '../components/ExpenseModal';
 import { useExpenses } from '../hooks/useExpenses';
 import { money } from '../utils/format';
+import { useNavigate } from 'react-router-dom';
 
 const columns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
-  ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
+  ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'],
 ] as const;
 type Column = typeof columns[number][0];
 
 export function Expenses() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(false);
@@ -32,7 +34,8 @@ export function Expenses() {
 
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
-    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value) : value;
+    if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((value) => <span key={value}>{value}</span>)}</div>;
+    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
 
   return <>
@@ -50,7 +53,7 @@ export function Expenses() {
     {columnsOpen && <section className="toolbar-panel columns-panel">
       {columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}
     </section>}
-    {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Нет соединения с сервером. {error}</div> : !items.length ? <section className="empty"><h2>{search || period || paymentStatus !== 'all' ? 'Ничего не найдено' : 'Расходов пока нет'}</h2><p>{search || period || paymentStatus !== 'all' ? 'Измените запрос или сбросьте фильтры.' : 'Добавьте первый расход или загрузите счет.'}</p></section> : <div className="table-wrap"><table><thead><tr>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{columns.filter(([key]) => visible.includes(key)).map(([key]) => <td key={key}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
+    {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Нет соединения с сервером. {error}</div> : !items.length ? <section className="empty"><h2>{search || period || paymentStatus !== 'all' ? 'Ничего не найдено' : 'Расходов пока нет'}</h2><p>{search || period || paymentStatus !== 'all' ? 'Измените запрос или сбросьте фильтры.' : 'Добавьте первый расход или загрузите счет.'}</p></section> : <div className="table-wrap"><table><thead><tr>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className="clickable-row" tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}>{columns.filter(([key]) => visible.includes(key)).map(([key]) => <td key={key}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
     {data && data.total > data.page_size && <div className="pagination"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Назад</button><span>Страница {page}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage((value) => value + 1)}>Далее</button></div>}
     {modal && <ExpenseModal close={() => setModal(false)} onSaved={() => setRevision((value) => value + 1)} />}
   </>;
