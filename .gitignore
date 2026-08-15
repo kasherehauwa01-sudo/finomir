@@ -8,4 +8,5 @@ dist/
 uploads/
 backups/
 *.log
+*.tsbuildinfo
 .DS_Store
