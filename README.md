@@ -27,8 +27,12 @@ cd backend && python -m pip install -e '.[test]' && pytest
 cd frontend && npm install && npm test && npm run build
 ```
 
-## OCR
-`OCRProvider` изолирует провайдера. По умолчанию `OCR_PROVIDER=disabled`: файл безопасно сохраняется, а пользователь получает ручную форму проверки. Секрет провайдера передается только через backend environment. PDF-провайдер может сначала применять `pypdf` для текстового слоя.
+## OCR счетов
+`OCRProvider` сохранен как граница backend. При `OCR_PROVIDER=paddle` backend передает изображение только внутреннему сервису `ocr` (`OCR_SERVICE_URL=http://ocr:8001`), где русская модель PaddleOCR загружается один раз при старте. Порт OCR на host не публикуется. Оригинал остается в volume uploads, а временная копия получает EXIF-ориентацию, ограничение 3000×3000, grayscale, контраст, резкость и умеренный deskew.
+
+Текст независимо обрабатывает `RussianInvoiceParser`: он определяет номер/дату счета, итоговую сумму через `Decimal`, поставщика и ИНН с проверкой контрольных цифр. Raw text, блоки с координатами, значения и confidence сохраняются в `ocr_results`. По точному ИНН выполняется поиск существующего контрагента; записи расходов и контрагентов OCR не создает. `POST /api/documents/{id}/recognize` позволяет повторить обработку. При `OCR_PROVIDER=disabled` остается ручной сценарий.
+
+Переменные: `OCR_PROVIDER`, `OCR_SERVICE_URL`, `OCR_TIMEOUT_SECONDS`. Диагностика: `docker compose logs ocr`, `docker compose exec ocr python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8001/health').read())"`.
 
 ## Excel
 Экспорт использует одну строку на счет с повторением человекочитаемых данных расхода; расход без счета также получает строку, поэтому данные не теряются.
