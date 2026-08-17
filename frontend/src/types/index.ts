@@ -1,6 +1,6 @@
 export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; tags: string[]; has_invoice_document: boolean; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
-export type DashboardSummary = { invoice_total: string; paid_total: string; remaining_total: string; expense_count: number; period: 'month' | 'quarter' | 'year' };
+export type DashboardSummary = { invoice_total: string; paid_total: string; remaining_total: string; expense_count: number; period: 'month' | 'quarter' | 'year'; tag_totals: { tag: string; amount: string; expense_count: number }[] };
 export type Partner = { id: string; name: string; comment?: string | null };
 export type Counterparty = { id: string; partner_id: string | null; full_name: string; short_name?: string | null; entity_type: string; inn?: string | null; kpp?: string | null; comment?: string | null };
 export type Store = { id: string; name: string; address?: string; is_active: boolean };

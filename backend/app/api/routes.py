@@ -31,13 +31,17 @@ def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"s
 @router.get("/dashboard")
 def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
- q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments))
- items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0)
+ q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
+ items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
  for expense in items:
+  expense_total=Decimal(0)
   for invoice in expense.invoices:
    if invoice.deleted_at: continue
-   invoice_total+=invoice.amount; paid_total+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
- return {"invoice_total":invoice_total,"paid_total":paid_total,"remaining_total":invoice_total-paid_total,"expense_count":len(items),"period":period}
+   invoice_total+=invoice.amount; expense_total+=invoice.amount; paid_total+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+  labels=[tag.name for tag in expense.tags] or ["Без тега"]
+  for label in labels:
+   current=tag_totals.setdefault(label,{"amount":Decimal(0),"expense_count":0}); current["amount"]+=expense_total; current["expense_count"]+=1
+ return {"invoice_total":invoice_total,"paid_total":paid_total,"remaining_total":invoice_total-paid_total,"expense_count":len(items),"period":period,"tag_totals":[{"tag":tag,"amount":value["amount"],"expense_count":value["expense_count"]} for tag,value in sorted(tag_totals.items(),key=lambda item:item[1]["amount"],reverse=True)]}
 @router.get("/partners")
 def partners(search:str|None=None,db:Session=Depends(get_db)):
  q=select(Partner).where(Partner.deleted_at.is_(None)); q=q.where(Partner.name.ilike(f"%{search}%")) if search else q

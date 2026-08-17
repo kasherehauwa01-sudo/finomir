@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import type { Counterparty, OCRResponse, Partner, Store } from '../types';
+import type { Counterparty, OCRResponse, Partner, Store, Tag } from '../types';
 
 type Props = { close: () => void; onSaved?: () => void };
 type Allocation = { store_id: string; amount: string };
@@ -14,6 +14,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
   const [serviceName, setServiceName] = useState('');
@@ -43,10 +45,12 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       api<Partner[]>('/partners'),
       api<Counterparty[]>('/counterparties'),
       api<Store[]>('/stores'),
-    ]).then(([partnerItems, counterpartyItems, storeItems]) => {
+      api<Tag[]>('/tags'),
+    ]).then(([partnerItems, counterpartyItems, storeItems, tagItems]) => {
       setPartners(partnerItems);
       setCounterparties(counterpartyItems);
       setStores(storeItems);
+      setTags(tagItems);
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
@@ -139,6 +143,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           partner_id: partnerId, counterparty_id: selectedCounterpartyId, service_name: serviceName,
           expense_month: month, expense_year: year,
           allocations: allocations.filter((item) => item.store_id).map((item) => ({ ...item, amount: item.amount || '0' })),
+          tag_ids: tagIds,
         }),
       });
       if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
@@ -177,6 +182,10 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       : stores.map((store) => ({ store_id: store.id, amount: '0' })));
   }
 
+  function toggleTag(tagId: string) {
+    setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
+  }
+
   return <div className="overlay" role="dialog" aria-modal="true">
     <section className="modal">
       <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
@@ -208,6 +217,10 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <fieldset><legend>Распределение по магазинам</legend>
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
+        </fieldset>
+        <fieldset><legend>Теги</legend>
+          <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
+          {!tags.length && <small>В справочнике пока нет тегов.</small>}
         </fieldset>
         <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
       </form>}
