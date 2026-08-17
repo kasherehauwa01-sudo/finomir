@@ -7,6 +7,9 @@ Ubuntu 22.04/24.04, Docker Engine с Compose plugin, существующий Ng
 BASE_PATH=/vr/finomir/
 VITE_BASE_PATH=/vr/finomir/
 CORS_ORIGINS=https://kvasmix.ru
+OCR_PROVIDER=paddle
+OCR_SERVICE_URL=http://ocr:8001
+OCR_TIMEOUT_SECONDS=60
 ```
 
 `BASE_PATH` и `VITE_BASE_PATH` должны совпадать. После изменения `VITE_BASE_PATH` frontend нужно пересобрать.
@@ -14,7 +17,8 @@ CORS_ORIGINS=https://kvasmix.ru
 ## Первый запуск
 ```bash
 docker compose build
-docker compose up -d postgres backend
+docker compose up -d --wait postgres ocr
+docker compose up -d --wait backend
 docker compose exec backend alembic upgrade head
 docker compose up -d
 curl -fsS http://127.0.0.1:8080/api/health
@@ -33,11 +37,64 @@ sudo systemctl reload nginx
 ```bash
 git pull
 docker compose build
-docker compose up -d postgres backend
+docker compose up -d --wait postgres ocr
+docker compose up -d --wait backend
 docker compose exec backend alembic upgrade head
-docker compose up -d
+docker compose up -d --wait frontend
+docker compose ps
+curl -fsS https://kvasmix.ru/vr/finomir/api/health
 ```
 Не удаляйте volumes при обычном обновлении.
+
+Эквивалентная последовательность находится в `scripts/update.sh`. OCR не публикует порт наружу и проверяется внутренним healthcheck. Первый старт может занять больше времени из-за инициализации модели. Если OCR временно недоступен, backend продолжает работать, а интерфейс предлагает ручное заполнение. Для диагностики используйте `docker compose logs --tail=200 ocr backend`; удалять volumes для исправления OCR нельзя.
+
+Если внешний `/var/www/html/vr/update_finomir.sh` уже выполняет `git pull`, запускайте проектный сценарий так, чтобы не получать изменения второй раз:
+
+```bash
+SKIP_GIT_PULL=1 /var/www/html/vr/finomir/scripts/update.sh
+```
+
+### Docker Hub: `server misbehaving`
+
+Ошибка вида `lookup registry-1.docker.io on 127.0.0.53:53: server misbehaving` возникает **до чтения Dockerfile**: production-сервер не смог разрешить DNS-имя Docker Hub. Повторный merge или изменение базовых образов эту ошибку не исправляет. Сначала проверьте DNS:
+
+```bash
+resolvectl query registry-1.docker.io
+getent ahosts registry-1.docker.io
+curl -I --connect-timeout 10 https://registry-1.docker.io/v2/
+```
+
+Если используется `systemd-resolved`, задайте доступные серверу DNS в `/etc/systemd/resolved.conf` (например, DNS хостинг-провайдера либо разрешенные в вашей инфраструктуре публичные resolver), затем обновите resolver:
+
+```ini
+[Resolve]
+DNS=1.1.1.1 8.8.8.8
+FallbackDNS=9.9.9.9
+```
+
+```bash
+sudo systemctl restart systemd-resolved
+sudo resolvectl flush-caches
+getent ahosts registry-1.docker.io
+```
+
+Если DNS хоста работает, а Docker по-прежнему не разрешает адреса, добавьте `/etc/docker/daemon.json`, сохранив уже имеющиеся параметры файла:
+
+```json
+{
+  "dns": ["1.1.1.1", "8.8.8.8"]
+}
+```
+
+После проверки JSON перезапустите только Docker daemon и повторите обновление:
+
+```bash
+sudo systemctl restart docker
+cd /var/www/html/vr/finomir
+SKIP_GIT_PULL=1 ./scripts/update.sh
+```
+
+Перезапуск Docker daemon не удаляет named volumes. Не выполняйте `docker compose down -v`. Новый update script проверяет DNS до сборки и делает до трех попыток; если сборка не удалась, уже запущенные production-контейнеры не останавливаются.
 
 ## Backup и restore
 Backup хранится снаружи контейнеров: `BACKUP_DIR=/srv/backups/finomir ./scripts/backup.sh`. Для восстановления остановите запись в сервис, затем:
