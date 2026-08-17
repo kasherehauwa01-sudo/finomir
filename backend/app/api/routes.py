@@ -2,12 +2,13 @@ from datetime import date,datetime,timezone
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Depends,File,HTTPException,Query,UploadFile
 from fastapi.responses import FileResponse,StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel,Field
 from sqlalchemy import func,select,text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session,selectinload
 from app.config import get_settings
 from app.database import get_db
 from app.models import *
@@ -123,6 +124,16 @@ class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:s
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
+@router.get("/dashboard")
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),db:Session=Depends(get_db)):
+ today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
+ q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments))
+ items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0)
+ for expense in items:
+  for invoice in expense.invoices:
+   if invoice.deleted_at: continue
+   invoice_total+=invoice.amount; paid_total+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+ return {"invoice_total":invoice_total,"paid_total":paid_total,"remaining_total":invoice_total-paid_total,"expense_count":len(items),"period":period}
 @router.get("/partners")
 def partners(search:str|None=None,db:Session=Depends(get_db)):
  q=select(Partner).where(Partner.deleted_at.is_(None)); q=q.where(Partner.name.ilike(f"%{search}%")) if search else q

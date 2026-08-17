@@ -171,6 +171,12 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       : [...current, { store_id: storeId, amount: '0' }]);
   }
 
+  function toggleAllStores() {
+    setAllocations((current) => current.length === stores.length
+      ? []
+      : stores.map((store) => ({ store_id: store.id, amount: '0' })));
+  }
+
   return <div className="overlay" role="dialog" aria-modal="true">
     <section className="modal">
       <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
@@ -200,6 +206,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
+          {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
         <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
