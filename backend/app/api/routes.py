@@ -18,104 +18,8 @@ from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
-
-def _run_recognition(document: Document, db: Session):
-    """
-    Запускает OCR для документа, сохраняет результат
-    и пытается найти контрагента по распознанному ИНН.
-    """
-    s = get_settings()
-
-    try:
-        provider = get_provider(s.ocr_provider, s.ocr_service_url)
-        result: OCRResult = provider.recognize(
-            document.storage_path,
-            document.mime_type,
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Ошибка сервиса распознавания: {exc}",
-        )
-
-    fields = {
-        "invoice_number": (
-            str(result.invoice_number)
-            if result.invoice_number is not None
-            else None
-        ),
-        "invoice_date": (
-            str(result.invoice_date)
-            if result.invoice_date is not None
-            else None
-        ),
-        "amount": (
-            str(result.invoice_amount)
-            if result.invoice_amount is not None
-            else None
-        ),
-        "recipient": result.counterparty_name,
-        "inn": result.inn,
-    }
-
-    recognition = OCRRecognition(
-        document_id=document.id,
-        provider=s.ocr_provider,
-        raw_text=result.raw_text or "",
-        fields=fields,
-        confidence=result.confidence or {},
-        blocks=result.blocks or [],
-        created_at=datetime.now(timezone.utc),
-    )
-
-    db.add(recognition)
-
-    counterparty = None
-
-    if result.inn:
-        counterparty = db.scalar(
-            select(Counterparty).where(
-                Counterparty.inn == result.inn,
-                Counterparty.deleted_at.is_(None),
-            )
-        )
-
-    db.commit()
-    db.refresh(recognition)
-
-    def field(name, confidence_key=None):
-        key = confidence_key or name
-        return {
-            "value": fields.get(name),
-            "confidence": float(
-                (result.confidence or {}).get(key, 0) or 0
-            ),
-        }
-
-    return {
-        "status": "success",
-        "document_id": str(document.id),
-
-        "fields": {
-            "invoice_number": field("invoice_number"),
-            "invoice_date": field("invoice_date"),
-            "amount": field("amount", "invoice_amount"),
-            "recipient": field("recipient", "counterparty_name"),
-            "inn": field("inn"),
-        },
-
-        "counterparty": {
-            "matched": counterparty is not None,
-            "id": str(counterparty.id) if counterparty else None,
-            "name": counterparty.full_name if counterparty else None,
-        },
-
-        "raw_text": result.raw_text or "",
-    }
-
-
-class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
-class CounterpartyIn(BaseModel): partner_id:UUID; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
+class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
+class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
 class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list)
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
@@ -140,7 +44,11 @@ def partners(search:str|None=None,db:Session=Depends(get_db)):
  return db.scalars(q.order_by(Partner.name)).all()
 @router.post("/partners",status_code=201)
 def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
- x=Partner(**data.model_dump()); db.add(x); db.commit(); return x
+ x=Partner(**data.model_dump(exclude={"counterparty_ids"})); db.add(x); db.flush()
+ for item_id in data.counterparty_ids or []:
+  item=db.get(Counterparty,item_id)
+  if item and not item.deleted_at: item.partner_id=x.id
+ db.commit(); return x
 @router.get("/partners/{item_id}")
 def partner_detail(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
@@ -150,7 +58,12 @@ def partner_detail(item_id:UUID,db:Session=Depends(get_db)):
 def update_partner(item_id:UUID,data:PartnerIn,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
  if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
- for key,value in data.model_dump().items(): setattr(x,key,value)
+ for key,value in data.model_dump(exclude={"counterparty_ids"}).items(): setattr(x,key,value)
+ if data.counterparty_ids is not None:
+  selected=set(data.counterparty_ids)
+  for item in db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None))).all():
+   if item.partner_id==x.id and item.id not in selected: item.partner_id=None
+   elif item.id in selected: item.partner_id=x.id
  db.commit(); db.refresh(x); return x
 @router.delete("/partners/{item_id}",status_code=204)
 def archive_partner(item_id:UUID,db:Session=Depends(get_db)):
@@ -162,7 +75,7 @@ def counterparties(search:str|None=None,inn:str|None=None,db:Session=Depends(get
  q=select(Counterparty).where(Counterparty.deleted_at.is_(None)); q=q.where(Counterparty.inn==inn) if inn else q; q=q.where(Counterparty.full_name.ilike(f"%{search}%")) if search else q; return db.scalars(q).all()
 @router.post("/counterparties",status_code=201)
 def create_counterparty(data:CounterpartyIn,db:Session=Depends(get_db)):
- if not db.get(Partner,data.partner_id): raise HTTPException(422,"Партнер не найден")
+ if data.partner_id and not db.get(Partner,data.partner_id): raise HTTPException(422,"Партнер не найден")
  x=Counterparty(**data.model_dump()); db.add(x); db.commit(); return x
 @router.get("/counterparties/{item_id}")
 def counterparty_detail(item_id:UUID,db:Session=Depends(get_db)):
