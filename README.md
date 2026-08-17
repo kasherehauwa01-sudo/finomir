@@ -38,3 +38,5 @@ cd frontend && npm install && npm test && npm run build
 Экспорт использует одну строку на счет с повторением человекочитаемых данных расхода; расход без счета также получает строку, поэтому данные не теряются.
 
 Deployment, Nginx, backup и restore описаны в [DEPLOY.md](DEPLOY.md).
+
+Если сборка завершается сообщением `lookup registry-1.docker.io ... server misbehaving`, это сбой DNS production-хоста. `scripts/update.sh` проверяет Docker Hub до сборки, повторяет временно неудачную сборку и не останавливает работающие контейнеры при ошибке. Пошаговая диагностика приведена в разделе `Docker Hub: server misbehaving` файла `DEPLOY.md`.
