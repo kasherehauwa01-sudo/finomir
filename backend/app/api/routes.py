@@ -18,9 +18,12 @@ from app.services.storage import save_bytes
 router=APIRouter()
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
-class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None
+class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(gt=0)
+class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list)
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
+class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
+class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/partners")
@@ -42,6 +45,18 @@ def counterparties(search:str|None=None,inn:str|None=None,db:Session=Depends(get
 def create_counterparty(data:CounterpartyIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id): raise HTTPException(422,"Партнер не найден")
  x=Counterparty(**data.model_dump()); db.add(x); db.commit(); return x
+@router.get("/stores")
+def stores(db:Session=Depends(get_db)):
+ return db.scalars(select(Store).where(Store.is_active.is_(True)).order_by(Store.name)).all()
+@router.post("/stores",status_code=201)
+def create_store(data:StoreIn,db:Session=Depends(get_db)):
+ x=Store(**data.model_dump()); db.add(x); db.commit(); return x
+@router.get("/tags")
+def tags(db:Session=Depends(get_db)):
+ return db.scalars(select(Tag).order_by(Tag.name)).all()
+@router.post("/tags",status_code=201)
+def create_tag(data:TagIn,db:Session=Depends(get_db)):
+ x=Tag(**data.model_dump()); db.add(x); db.commit(); return x
 @router.get("/expenses")
 def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
  items,total=ExpenseRepository(db).list(page,page_size,search); out=[]
@@ -51,7 +66,10 @@ def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id) or not db.get(Counterparty,data.counterparty_id): raise HTTPException(422,"Партнер или контрагент не найден")
- x=Expense(**data.model_dump()); db.add(x); db.flush(); db.add(AuditLog(entity_type="expense",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
+ if any(not db.get(Store,item.store_id) for item in data.allocations): raise HTTPException(422,"Магазин не найден")
+ values=data.model_dump(exclude={"allocations"}); x=Expense(**values); db.add(x); db.flush()
+ for item in data.allocations: db.add(Allocation(expense_id=x.id,**item.model_dump()))
+ db.add(AuditLog(entity_type="expense",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
 @router.post("/expenses/{expense_id}/invoices",status_code=201)
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
