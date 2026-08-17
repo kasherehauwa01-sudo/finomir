@@ -5,7 +5,8 @@ export type Counterparty = { id: string; partner_id: string; full_name: string; 
 export type Store = { id: string; name: string; address?: string; is_active: boolean };
 export type Tag = { id: string; name: string };
 export type OCRResponse = {
-  result: { counterparty_name?: string; inn?: string; invoice_number?: string; invoice_date?: string; invoice_amount?: string; service_name?: string; service_period?: { month?: number; year?: number } };
-  message: string;
+  status: 'success'; document_id: string;
+  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField };
+  counterparty: { matched: boolean; id?: string; name?: string }; raw_text: string;
 };
 export type ExpenseDetail = { id:string; partner_id:string; counterparty_id:string; service_name:string; expense_month:number; expense_year:number; contract_number?:string; contract_date?:string; comment?:string; allocations:{store_id:string;store:string;amount:string}[]; tags:{id:string;name:string}[]; invoices:{id:string;invoice_number:string;invoice_date:string;amount:string;payments:{id:string;payment_date:string;amount:string;comment?:string}[]}[]; documents:{id:string;document_type:'invoice'|'closing';original_filename:string;mime_type:string;created_at:string}[] };

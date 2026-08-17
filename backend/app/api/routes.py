@@ -14,6 +14,7 @@ from app.models import *
 from app.repositories.expenses import ExpenseRepository
 from app.services.finance import expense_totals,invoice_totals
 from app.services.ocr import get_provider
+from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
@@ -166,11 +167,16 @@ def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
 @router.post("/ocr")
-async def ocr(file:UploadFile=File(...)):
+async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):
  data=await file.read(); s=get_settings()
  try: stored,path,sha=save_bytes(data,file.filename or "document",file.content_type or "",s.upload_dir,s.max_upload_size_mb)
  except ValueError as e: raise HTTPException(422,str(e))
- result=get_provider(s.ocr_provider).recognize(path,file.content_type or ""); return {"document":{"stored_filename":stored,"sha256":sha},"result":result.__dict__,"needs_review":True,"message":"Проверьте распознанные данные. OCR не является окончательным источником."}
+ document=Document(document_type="invoice",original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(document); db.commit(); db.refresh(document); return _run_recognition(document,db)
+@router.post("/documents/{document_id}/recognize")
+def recognize_document(document_id:UUID,db:Session=Depends(get_db)):
+ document=db.get(Document,document_id)
+ if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
+ return _run_recognition(document,db)
 @router.get("/export")
 def export(db:Session=Depends(get_db)):
  items,_=ExpenseRepository(db).list(1,100,None); wb=Workbook(); ws=wb.active; ws.title="Расходы"; ws.append(["Период","Партнер","Контрагент","ИНН","Услуга","Договор","Счет","Дата счета","Сумма","Оплачено","Остаток"])
