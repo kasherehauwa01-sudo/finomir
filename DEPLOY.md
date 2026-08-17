@@ -96,6 +96,51 @@ SKIP_GIT_PULL=1 ./scripts/update.sh
 
 Перезапуск Docker daemon не удаляет named volumes. Не выполняйте `docker compose down -v`. Новый update script проверяет DNS до сборки и делает до трех попыток; если сборка не удалась, уже запущенные production-контейнеры не останавливаются.
 
+### Docker Hub: IPv6 `network is unreachable`
+
+Ошибка вида:
+
+```text
+dial tcp [2600:...]:443: connect: network is unreachable
+```
+
+означает, что DNS уже работает, но Docker/BuildKit выбрал AAAA-запись Docker Hub, хотя у сервера нет рабочего IPv6-маршрута. Проверьте IPv4 и IPv6 отдельно:
+
+```bash
+getent ahostsv4 registry-1.docker.io
+getent ahostsv6 registry-1.docker.io
+curl -4 -I --connect-timeout 10 https://registry-1.docker.io/v2/
+ip -6 route show default
+```
+
+Ответ `401 Unauthorized` от `curl -4` является успешной проверкой связи с Docker Registry. Если IPv4 работает, а `ip -6 route show default` ничего не возвращает, серверу нужно либо настроить IPv6 у хостинг-провайдера, либо отключить неработающий IPv6. Для сервера, где IPv6 не используется, временная проверка выполняется так:
+
+```bash
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+sudo systemctl restart docker
+```
+
+Если после этого сборка работает, сохраните настройку после согласования с администратором сервера:
+
+```bash
+sudo tee /etc/sysctl.d/99-disable-broken-ipv6.conf >/dev/null <<'EOF'
+net.ipv6.conf.all.disable_ipv6=1
+net.ipv6.conf.default.disable_ipv6=1
+EOF
+sudo sysctl --system
+sudo systemctl restart docker
+```
+
+Не отключайте IPv6, если на сервере через него доступны другие production-приложения: в этом случае следует настроить корректный IPv6 default route у провайдера.
+
+В приведенном логе внешний `/var/www/html/vr/update_finomir.sh` по-прежнему вызывает `docker compose build` самостоятельно — сообщения `[время] Проверка DNS и IPv4-доступа...` отсутствуют. Поэтому проверки проектного `scripts/update.sh` не выполняются. После исправления сети измените шаг сборки внешнего сценария на:
+
+```bash
+cd /var/www/html/vr/finomir
+SKIP_GIT_PULL=1 ./scripts/update.sh
+```
+
 ## Backup и restore
 Backup хранится снаружи контейнеров: `BACKUP_DIR=/srv/backups/finomir ./scripts/backup.sh`. Для восстановления остановите запись в сервис, затем:
 ```bash

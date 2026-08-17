@@ -40,3 +40,5 @@ cd frontend && npm install && npm test && npm run build
 Deployment, Nginx, backup и restore описаны в [DEPLOY.md](DEPLOY.md).
 
 Если сборка завершается сообщением `lookup registry-1.docker.io ... server misbehaving`, это сбой DNS production-хоста. `scripts/update.sh` проверяет Docker Hub до сборки, повторяет временно неудачную сборку и не останавливает работающие контейнеры при ошибке. Пошаговая диагностика приведена в разделе `Docker Hub: server misbehaving` файла `DEPLOY.md`.
+
+Если Docker обращается к IPv6-адресу Registry и получает `network is unreachable`, на сервере опубликованы AAAA-записи, но отсутствует рабочий IPv6 default route. Update script отдельно проверяет IPv4 HTTPS и выявляет такую конфигурацию до сборки; варианты исправления описаны в `DEPLOY.md`.
