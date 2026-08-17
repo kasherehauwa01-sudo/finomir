@@ -9,5 +9,4 @@ export type OCRResponse = {
   fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField };
   counterparty: { matched: boolean; id?: string; name?: string }; raw_text: string;
 };
-export type OCRField = { value?: string; confidence: number };
 export type ExpenseDetail = { id:string; partner_id:string; counterparty_id:string; service_name:string; expense_month:number; expense_year:number; contract_number?:string; contract_date?:string; comment?:string; allocations:{store_id:string;store:string;amount:string}[]; tags:{id:string;name:string}[]; invoices:{id:string;invoice_number:string;invoice_date:string;amount:string;payments:{id:string;payment_date:string;amount:string;comment?:string}[]}[]; documents:{id:string;document_type:'invoice'|'closing';original_filename:string;mime_type:string;created_at:string}[] };
