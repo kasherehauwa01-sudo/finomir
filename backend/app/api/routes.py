@@ -14,6 +14,7 @@ from app.models import *
 from app.repositories.expenses import ExpenseRepository
 from app.services.finance import expense_totals,invoice_totals
 from app.services.ocr import get_provider
+from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
@@ -141,6 +142,12 @@ def document_content(document_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Document,document_id)
  if not x or x.deleted_at: raise HTTPException(404,"Документ не найден")
  return FileResponse(x.storage_path,media_type=x.mime_type,filename=x.original_filename,content_disposition_type="inline")
+@router.put("/documents/{document_id}/expense/{expense_id}")
+def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db)):
+ document=db.get(Document,document_id); expense=db.get(Expense,expense_id)
+ if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
+ if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
+ document.expense_id=expense_id; db.commit(); return {"id":document.id}
 @router.post("/expenses/{expense_id}/invoices",status_code=201)
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
@@ -165,12 +172,39 @@ def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  if not x or x.deleted_at: raise HTTPException(404,"Платеж не найден")
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
+def _serialize_ocr(result:OCRResult):
+ values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn}
+ confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0)}
+ return values,confidence
+def _match_counterparty(result:OCRResult,db:Session):
+ matches=db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None),Counterparty.inn==result.inn)).all() if result.inn else []
+ if len(matches)==1: return matches[0],True
+ if result.counterparty_name and result.confidence.get("counterparty_name",0)>=.85:
+  normalized=lambda value:"".join(x for x in value.lower() if x.isalnum())
+  target=normalized(result.counterparty_name); names=[x for x in db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None))).all() if normalized(x.full_name)==target]
+  if len(names)==1: return names[0],True
+ return None,False
+def _run_recognition(document:Document,db:Session):
+ s=get_settings()
+ try: result=get_provider(s.ocr_provider).recognize(document.storage_path,document.mime_type)
+ except Exception:
+  raise HTTPException(503,"Не удалось уверенно распознать счет. Вы можете заполнить данные вручную или сфотографировать документ еще раз.")
+ values,confidence=_serialize_ocr(result); counterparty,matched=_match_counterparty(result,db)
+ if matched: confidence["inn"]=max(confidence["inn"],.99); confidence["recipient"]=max(confidence["recipient"],.95)
+ recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()
+ return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None},"raw_text":result.raw_text}
+@router.post("/ocr/invoice")
 @router.post("/ocr")
-async def ocr(file:UploadFile=File(...)):
+async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):
  data=await file.read(); s=get_settings()
  try: stored,path,sha=save_bytes(data,file.filename or "document",file.content_type or "",s.upload_dir,s.max_upload_size_mb)
  except ValueError as e: raise HTTPException(422,str(e))
- result=get_provider(s.ocr_provider).recognize(path,file.content_type or ""); return {"document":{"stored_filename":stored,"sha256":sha},"result":result.__dict__,"needs_review":True,"message":"Проверьте распознанные данные. OCR не является окончательным источником."}
+ document=Document(document_type="invoice",original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(document); db.commit(); db.refresh(document); return _run_recognition(document,db)
+@router.post("/documents/{document_id}/recognize")
+def recognize_document(document_id:UUID,db:Session=Depends(get_db)):
+ document=db.get(Document,document_id)
+ if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
+ return _run_recognition(document,db)
 @router.get("/export")
 def export(db:Session=Depends(get_db)):
  items,_=ExpenseRepository(db).list(1,100,None); wb=Workbook(); ws=wb.active; ws.title="Расходы"; ws.append(["Период","Партнер","Контрагент","ИНН","Услуга","Договор","Счет","Дата счета","Сумма","Оплачено","Остаток"])
