@@ -156,7 +156,12 @@ def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x or x.deleted_at: raise HTTPException(404,"Расход не найден")
  for key,value in data.model_dump(exclude={"allocations","tag_ids"}).items(): setattr(x,key,value)
- x.allocations.clear(); x.allocations.extend(Allocation(**item.model_dump()) for item in data.allocations)
+ existing={item.store_id:item for item in x.allocations}; selected={item.store_id:item for item in data.allocations}
+ for store_id,allocation in list(existing.items()):
+  if store_id not in selected: db.delete(allocation)
+ for store_id,item in selected.items():
+  if store_id in existing: existing[store_id].amount=item.amount
+  else: x.allocations.append(Allocation(**item.model_dump()))
  x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]
  db.commit(); return {"id":x.id}
 @router.delete("/expenses/{expense_id}",status_code=204)
@@ -193,7 +198,7 @@ def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
 def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  x=db.get(Invoice,invoice_id)
  if not x or x.deleted_at: raise HTTPException(404,"Счет не найден")
- for key,value in data.model_dump(exclude={"allow_duplicate"}).items(): setattr(x,key,value)
+ for key,value in data.model_dump(exclude={"allow_duplicate"},exclude_unset=True).items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
 @router.post("/invoices/{invoice_id}/payments",status_code=201)
 def add_payment(invoice_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
