@@ -17,6 +17,102 @@ from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
+
+def _run_recognition(document: Document, db: Session):
+    """
+    Запускает OCR для документа, сохраняет результат
+    и пытается найти контрагента по распознанному ИНН.
+    """
+    s = get_settings()
+
+    try:
+        provider = get_provider(s.ocr_provider, s.ocr_service_url)
+        result: OCRResult = provider.recognize(
+            document.storage_path,
+            document.mime_type,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ошибка сервиса распознавания: {exc}",
+        )
+
+    fields = {
+        "invoice_number": (
+            str(result.invoice_number)
+            if result.invoice_number is not None
+            else None
+        ),
+        "invoice_date": (
+            str(result.invoice_date)
+            if result.invoice_date is not None
+            else None
+        ),
+        "amount": (
+            str(result.invoice_amount)
+            if result.invoice_amount is not None
+            else None
+        ),
+        "recipient": result.counterparty_name,
+        "inn": result.inn,
+    }
+
+    recognition = OCRRecognition(
+        document_id=document.id,
+        provider=s.ocr_provider,
+        raw_text=result.raw_text or "",
+        fields=fields,
+        confidence=result.confidence or {},
+        blocks=result.blocks or [],
+        created_at=datetime.now(timezone.utc),
+    )
+
+    db.add(recognition)
+
+    counterparty = None
+
+    if result.inn:
+        counterparty = db.scalar(
+            select(Counterparty).where(
+                Counterparty.inn == result.inn,
+                Counterparty.deleted_at.is_(None),
+            )
+        )
+
+    db.commit()
+    db.refresh(recognition)
+
+    def field(name, confidence_key=None):
+        key = confidence_key or name
+        return {
+            "value": fields.get(name),
+            "confidence": float(
+                (result.confidence or {}).get(key, 0) or 0
+            ),
+        }
+
+    return {
+        "status": "success",
+        "document_id": str(document.id),
+
+        "fields": {
+            "invoice_number": field("invoice_number"),
+            "invoice_date": field("invoice_date"),
+            "amount": field("amount", "invoice_amount"),
+            "recipient": field("recipient", "counterparty_name"),
+            "inn": field("inn"),
+        },
+
+        "counterparty": {
+            "matched": counterparty is not None,
+            "id": str(counterparty.id) if counterparty else None,
+            "name": counterparty.full_name if counterparty else None,
+        },
+
+        "raw_text": result.raw_text or "",
+    }
+
+
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
