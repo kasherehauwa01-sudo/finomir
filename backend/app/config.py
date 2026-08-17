@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 20
     ocr_provider: str = "tesseract"
     ocr_api_key: str | None = None
+    ocr_service_url: str = "http://ocr:8001"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @field_validator("base_path")
     @classmethod

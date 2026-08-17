@@ -1,3 +1,8 @@
+export type OCRField = {
+  value: string | null;
+  confidence: number;
+};
+
 export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; tags: string[]; has_invoice_document: boolean; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type Partner = { id: string; name: string; comment?: string };

@@ -10,14 +10,20 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 app = FastAPI(title="Finomir PaddleOCR")
 # Модель загружается один раз при старте процесса и повторно используется.
-ocr = PaddleOCR(lang="ru", use_doc_orientation_classify=True, use_doc_unwarping=True, use_textline_orientation=True)
+ocr = PaddleOCR(
+    text_detection_model_name="PP-OCRv5_mobile_det",
+    text_recognition_model_name="eslav_PP-OCRv5_mobile_rec",
+    use_doc_orientation_classify=False,
+    use_doc_unwarping=False,
+    use_textline_orientation=False,
+)
 MAX_BYTES = int(os.getenv("OCR_MAX_FILE_MB", "20")) * 1024 * 1024
 
 
 def prepare_image(data: bytes, target: Path) -> None:
     with Image.open(__import__("io").BytesIO(data)) as source:
         image = ImageOps.exif_transpose(source).convert("RGB")
-        image.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
+        image.thumbnail((2000, 2000), Image.Resampling.LANCZOS)
         gray = ImageOps.grayscale(image)
         gray = ImageEnhance.Contrast(gray).enhance(1.25).filter(ImageFilter.SHARPEN)
         array = np.array(gray)

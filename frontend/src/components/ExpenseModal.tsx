@@ -37,10 +37,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     if (window.confirm('Закрыть окно? Несохраненные данные будут потеряны.')) close();
   }
 
-  function requestClose() {
-    if (window.confirm('Закрыть окно? Несохраненные данные будут потеряны.')) close();
-  }
-
   useEffect(() => {
     Promise.all([
       api<Partner[]>('/partners'),
