@@ -5,6 +5,7 @@ import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Directories } from './pages/Directories';
 import { Expenses } from './pages/Expenses';
+import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
 import './styles.css';
 

@@ -3,7 +3,7 @@ from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
 from fastapi import APIRouter,Depends,File,HTTPException,Query,UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse,StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel,Field
 from sqlalchemy import func,select,text
@@ -14,8 +14,105 @@ from app.models import *
 from app.repositories.expenses import ExpenseRepository
 from app.services.finance import expense_totals,invoice_totals
 from app.services.ocr import get_provider
+from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
+
+def _run_recognition(document: Document, db: Session):
+    """
+    Запускает OCR для документа, сохраняет результат
+    и пытается найти контрагента по распознанному ИНН.
+    """
+    s = get_settings()
+
+    try:
+        provider = get_provider(s.ocr_provider, s.ocr_service_url)
+        result: OCRResult = provider.recognize(
+            document.storage_path,
+            document.mime_type,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ошибка сервиса распознавания: {exc}",
+        )
+
+    fields = {
+        "invoice_number": (
+            str(result.invoice_number)
+            if result.invoice_number is not None
+            else None
+        ),
+        "invoice_date": (
+            str(result.invoice_date)
+            if result.invoice_date is not None
+            else None
+        ),
+        "amount": (
+            str(result.invoice_amount)
+            if result.invoice_amount is not None
+            else None
+        ),
+        "recipient": result.counterparty_name,
+        "inn": result.inn,
+    }
+
+    recognition = OCRRecognition(
+        document_id=document.id,
+        provider=s.ocr_provider,
+        raw_text=result.raw_text or "",
+        fields=fields,
+        confidence=result.confidence or {},
+        blocks=result.blocks or [],
+        created_at=datetime.now(timezone.utc),
+    )
+
+    db.add(recognition)
+
+    counterparty = None
+
+    if result.inn:
+        counterparty = db.scalar(
+            select(Counterparty).where(
+                Counterparty.inn == result.inn,
+                Counterparty.deleted_at.is_(None),
+            )
+        )
+
+    db.commit()
+    db.refresh(recognition)
+
+    def field(name, confidence_key=None):
+        key = confidence_key or name
+        return {
+            "value": fields.get(name),
+            "confidence": float(
+                (result.confidence or {}).get(key, 0) or 0
+            ),
+        }
+
+    return {
+        "status": "success",
+        "document_id": str(document.id),
+
+        "fields": {
+            "invoice_number": field("invoice_number"),
+            "invoice_date": field("invoice_date"),
+            "amount": field("amount", "invoice_amount"),
+            "recipient": field("recipient", "counterparty_name"),
+            "inn": field("inn"),
+        },
+
+        "counterparty": {
+            "matched": counterparty is not None,
+            "id": str(counterparty.id) if counterparty else None,
+            "name": counterparty.full_name if counterparty else None,
+        },
+
+        "raw_text": result.raw_text or "",
+    }
+
+
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(gt=0)
@@ -33,6 +130,12 @@ def partners(search:str|None=None,db:Session=Depends(get_db)):
 @router.post("/partners",status_code=201)
 def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
  x=Partner(**data.model_dump()); db.add(x); db.commit(); return x
+@router.put("/partners/{item_id}")
+def update_partner(item_id:UUID,data:PartnerIn,db:Session=Depends(get_db)):
+ x=db.get(Partner,item_id)
+ if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
+ for key,value in data.model_dump().items(): setattr(x,key,value)
+ db.commit(); db.refresh(x); return x
 @router.delete("/partners/{item_id}",status_code=204)
 def archive_partner(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
@@ -59,9 +162,11 @@ def create_tag(data:TagIn,db:Session=Depends(get_db)):
  x=Tag(**data.model_dump()); db.add(x); db.commit(); return x
 @router.get("/expenses")
 def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
- items,total=ExpenseRepository(db).list(page,page_size,search); out=[]
+ items,total=ExpenseRepository(db).list(page,page_size,search); out=[]; documents_by_expense={x.id:set() for x in items}
+ if items:
+  for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  for x in items:
-  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
+  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
@@ -77,17 +182,34 @@ def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  dup=db.scalar(select(Invoice).join(Expense).join(Counterparty).where(Counterparty.inn==exp.counterparty.inn,func.lower(Invoice.invoice_number)==data.invoice_number.lower(),Invoice.invoice_date==data.invoice_date,Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
  if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Возможно, этот счет уже существует","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  x=Invoice(expense_id=expense_id,**data.model_dump(exclude={"allow_duplicate"})); db.add(x); db.flush(); db.add(AuditLog(entity_type="invoice",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
+@router.put("/invoices/{invoice_id}")
+def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
+ x=db.get(Invoice,invoice_id)
+ if not x or x.deleted_at: raise HTTPException(404,"Счет не найден")
+ for key,value in data.model_dump(exclude={"allow_duplicate"}).items(): setattr(x,key,value)
+ db.commit(); return {"id":x.id}
 @router.post("/invoices/{invoice_id}/payments",status_code=201)
 def add_payment(invoice_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  inv=db.get(Invoice,invoice_id)
  if not inv or inv.deleted_at: raise HTTPException(404,"Счет не найден")
  x=Payment(invoice_id=invoice_id,**data.model_dump()); db.add(x); db.flush(); db.add(AuditLog(entity_type="payment",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); paid,remaining=invoice_totals(inv.amount,[p.amount for p in inv.payments if not p.deleted_at]); return {"id":x.id,"paid_amount":paid,"remaining_amount":remaining}
+@router.put("/payments/{payment_id}")
+def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
+ x=db.get(Payment,payment_id)
+ if not x or x.deleted_at: raise HTTPException(404,"Платеж не найден")
+ for key,value in data.model_dump().items(): setattr(x,key,value)
+ db.commit(); return {"id":x.id}
 @router.post("/ocr")
-async def ocr(file:UploadFile=File(...)):
+async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):
  data=await file.read(); s=get_settings()
  try: stored,path,sha=save_bytes(data,file.filename or "document",file.content_type or "",s.upload_dir,s.max_upload_size_mb)
  except ValueError as e: raise HTTPException(422,str(e))
- result=get_provider(s.ocr_provider).recognize(path,file.content_type or ""); return {"document":{"stored_filename":stored,"sha256":sha},"result":result.__dict__,"needs_review":True,"message":"Проверьте распознанные данные. OCR не является окончательным источником."}
+ document=Document(document_type="invoice",original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(document); db.commit(); db.refresh(document); return _run_recognition(document,db)
+@router.post("/documents/{document_id}/recognize")
+def recognize_document(document_id:UUID,db:Session=Depends(get_db)):
+ document=db.get(Document,document_id)
+ if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
+ return _run_recognition(document,db)
 @router.get("/export")
 def export(db:Session=Depends(get_db)):
  items,_=ExpenseRepository(db).list(1,100,None); wb=Workbook(); ws=wb.active; ws.title="Расходы"; ws.append(["Период","Партнер","Контрагент","ИНН","Услуга","Договор","Счет","Дата счета","Сумма","Оплачено","Остаток"])
