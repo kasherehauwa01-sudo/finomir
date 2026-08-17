@@ -273,11 +273,13 @@ def _serialize_ocr(result:OCRResult):
  confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0)}
  return values,confidence
 def _match_counterparty(result:OCRResult,db:Session):
- matches=db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None),Counterparty.inn==result.inn)).all() if result.inn else []
+ normalized_inn="".join(x for x in (result.inn or "") if x.isdigit())
+ active=db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None))).all()
+ matches=[item for item in active if "".join(x for x in (item.inn or "") if x.isdigit())==normalized_inn] if normalized_inn else []
  if len(matches)==1: return matches[0],True
  if result.counterparty_name and result.confidence.get("counterparty_name",0)>=.85:
   normalized=lambda value:"".join(x for x in value.lower() if x.isalnum())
-  target=normalized(result.counterparty_name); names=[x for x in db.scalars(select(Counterparty).where(Counterparty.deleted_at.is_(None))).all() if normalized(x.full_name)==target]
+  target=normalized(result.counterparty_name); names=[x for x in active if normalized(x.full_name)==target]
   if len(names)==1: return names[0],True
  return None,False
 def _run_recognition(document:Document,db:Session):

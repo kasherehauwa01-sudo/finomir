@@ -62,7 +62,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setPreview(URL.createObjectURL(file));
       const response = await api<OCRResponse>('/ocr/invoice', { method: 'POST', body: form });
       setInvoiceNumber(response.fields.invoice_number.value ?? '');
-      setInvoiceDate(response.fields.invoice_date.value ?? today);
+      // После OCR неизвестная дата должна оставаться пустой, а не выглядеть
+      // как успешно распознанная текущая дата.
+      setInvoiceDate(response.fields.invoice_date.value ?? '');
       setInvoiceAmount(response.fields.amount.value ?? '');
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));

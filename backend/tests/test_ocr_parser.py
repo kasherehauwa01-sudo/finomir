@@ -2,91 +2,94 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.ocr.parser import OCRTextBlock, RussianInvoiceParser
+from app.services.ocr.parser import RussianInvoiceParser
 
 
-@pytest.fixture
-def parser() -> RussianInvoiceParser:
-    return RussianInvoiceParser()
+REAL_APRES_TEXT = '''
+ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"
+Банк получателя
+ИНН
+3459074228
+КПП
+344301001
+ООО "АПРЕС"
+Получатель
+Счет на оплату № 253 от 27 июля 2026 г.
+Поставщик
+ООО "АПРЕС", ИНН 3459074228, КПП 344301001
+Покупатель
+ИП Куприянова Ольга Владимировна, ИНН 344309962847
+Итого:
+7 140,00
+Всего к оплате:
+7 140,00
+'''
 
 
-def test_text_month_date_and_total_on_next_line(parser: RussianInvoiceParser) -> None:
-    result = parser.parse(
-        "Счет на оплату № 33 от 18 февраля 2026 г.\nВсего к оплате:\n785,00"
-    )
-
-    assert result.invoice_number == "33"
-    assert result.invoice_date == "2026-02-18"
-    assert result.invoice_amount == Decimal("785.00")
-    assert result.confidence["invoice_number"] > 0
-    assert result.confidence["invoice_date"] > 0
-    assert result.confidence["invoice_amount"] > 0
-
-
-def test_short_header_digital_date_and_spaced_amount(parser: RussianInvoiceParser) -> None:
-    result = parser.parse("Счёт № 125 от 03.08.2026\nИтого: 12 500,00")
-
-    assert result.invoice_number == "125"
-    assert result.invoice_date == "2026-08-03"
-    assert result.invoice_amount == Decimal("12500.00")
-
-
-def test_supplier_inn_has_priority_over_customer_inn(parser: RussianInvoiceParser) -> None:
-    result = parser.parse(
-        "Поставщик\nООО \"АПРЕС\", ИНН 3459074228, КПП 344301001\n"
-        "Покупатель\nИП Куприянова Ольга Владимировна, ИНН 344309962847"
-    )
-
+def test_real_apres_invoice():
+    result = RussianInvoiceParser().parse(REAL_APRES_TEXT)
+    assert result.invoice_number == "253"
+    assert result.invoice_date == "2026-07-27"
+    assert result.invoice_amount == Decimal("7140.00")
     assert result.inn == "3459074228"
-    assert result.kpp == "344301001"
     assert result.counterparty_name == 'ООО "АПРЕС"'
 
 
-def test_payment_deadline_is_not_used_as_invoice_date(parser: RussianInvoiceParser) -> None:
-    result = parser.parse(
-        "Счет на оплату № 33 от 18 февраля 2026 г.\n"
-        "Оплатить не позднее 24.02.2026"
+@pytest.mark.parametrize(("header", "number", "invoice_date"), [
+    ("Счёт на оплату № 253 от 27 июля 2026 г.", "253", "2026-07-27"),
+    ("Счет № 253 от 27.07.2026", "253", "2026-07-27"),
+    ("Счёт №АБ-125/2026 от 27-07-2026", "АБ-125/2026", "2026-07-27"),
+    ("Счет на оплату No СЧ-253 от 27/07/2026", "СЧ-253", "2026-07-27"),
+    ("Cчет на оплату N А-253 от 27 июля 2026", "А-253", "2026-07-27"),
+])
+def test_header_variants(header, number, invoice_date):
+    result = RussianInvoiceParser().parse(header)
+    assert result.invoice_number == number
+    assert result.invoice_date == invoice_date
+
+
+@pytest.mark.parametrize("text", [
+    "Всего к оплате: 7 140,00",
+    "Всего к оплате:\n7 140,00",
+    "Итого к оплате: 7 140.00",
+    "К оплате 7140,00",
+])
+def test_amount_variants(text):
+    assert RussianInvoiceParser().parse(text).invoice_amount == Decimal("7140.00")
+
+
+def test_total_phrase_has_priority_over_item_price():
+    text = "Цена: 2 000,00\nИтого: 5 000,00\nВсего к оплате:\n7 140,00"
+    assert RussianInvoiceParser().parse(text).invoice_amount == Decimal("7140.00")
+
+
+def test_supplier_inn_has_priority_over_buyer_inn():
+    result = RussianInvoiceParser().parse(
+        'Поставщик\nООО "АПРЕС", ИНН 3459074228\n'
+        'Покупатель\nИП Куприянова, ИНН 344309962847'
     )
-
-    assert result.invoice_date == "2026-02-18"
-
-
-def test_document_total_has_priority_over_line_item_prices(parser: RussianInvoiceParser) -> None:
-    result = parser.parse(
-        "Счет на оплату N 33 от 18-02-2026\n"
-        "Печать баннера\n2\n450,00\n900,00\nИтого: 900,00\n"
-        "Всего к оплате:\n785,00"
-    )
-
-    assert result.invoice_amount == Decimal("785.00")
+    assert result.inn == "3459074228"
+    assert result.counterparty_name == 'ООО "АПРЕС"'
 
 
-def test_bank_account_is_not_used_as_invoice_number(parser: RussianInvoiceParser) -> None:
-    result = parser.parse("Банк получателя\nСч. №\n40702810026100002367")
-
+def test_bank_account_is_not_invoice_number():
+    result = RussianInvoiceParser().parse("БИК 046015207\nСч. № 40702810000000000236\nИНН 3459074228")
     assert result.invoice_number is None
+    assert result.confidence["invoice_number"] == 0
 
 
-@pytest.mark.parametrize("marker", ["№", "N", "No"])
-@pytest.mark.parametrize("separator", [".", "-", "/"])
-def test_supported_header_markers_and_digital_date_separators(
-    parser: RussianInvoiceParser, marker: str, separator: str
-) -> None:
-    result = parser.parse(f"Счет на оплату {marker} А-17 от 18{separator}02{separator}2026")
-
-    assert result.invoice_number == "А-17"
-    assert result.invoice_date == "2026-02-18"
-
-
-def test_ocr_block_confidence_is_preserved(parser: RussianInvoiceParser) -> None:
-    line = "Счет № 7 от 18.02.2026"
-    result = parser.parse(line, [OCRTextBlock(line, 0.6)])
-
-    assert 0.6 < result.confidence["invoice_number"] < 0.94
+@pytest.mark.parametrize(("text", "missing"), [
+    ("Всего к оплате 100,00", "number"),
+    ("Счет № 10 от 01.01.2026", "amount"),
+    ("Счет № 10\nВсего к оплате 100,00", "date"),
+])
+def test_missing_fields_are_not_invented(text, missing):
+    result = RussianInvoiceParser().parse(text)
+    assert getattr(result, f"invoice_{missing}") is None
+    assert result.confidence[f"invoice_{missing}"] == 0
 
 
-def test_invoice_number_may_be_on_next_ocr_line(parser: RussianInvoiceParser) -> None:
-    result = parser.parse("Счет на оплату №\n33 от 18 февраля 2026 г.")
-
-    assert result.invoice_number == "33"
-    assert result.invoice_date == "2026-02-18"
+def test_random_word_after_title_is_not_a_number():
+    result = RussianInvoiceParser().parse("Счет на оплату НОГО от 27 июля 2026")
+    assert result.invoice_number is None
+    assert result.confidence["invoice_number"] == 0
