@@ -1,15 +1,16 @@
 export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; tags: string[]; has_invoice_document: boolean; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
-export type Partner = { id: string; name: string; comment?: string };
-export type Counterparty = { id: string; partner_id: string; full_name: string; short_name?: string; entity_type: string; inn?: string; kpp?: string };
+export type Partner = { id: string; name: string; comment?: string | null };
+export type Counterparty = { id: string; partner_id: string; full_name: string; short_name?: string | null; entity_type: string; inn?: string | null; kpp?: string | null; comment?: string | null };
 export type Store = { id: string; name: string; address?: string; is_active: boolean };
 export type Tag = { id: string; name: string };
 export type OCRResponse = {
   status: 'success'; document_id: string;
-  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField };
+  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField };
   counterparty: { matched: boolean; id: string | null; name: string | null }; raw_text: string;
 };
 export type OCRField = { value: string | null; confidence: number };
+export type PartnerDetail = Partner & { counterparties: Pick<Counterparty, 'id' | 'full_name' | 'inn' | 'kpp'>[] };
 
 export type ExpenseAllocation = { store_id: string; store: string; amount: string };
 export type ExpenseTag = { id: string; name: string };

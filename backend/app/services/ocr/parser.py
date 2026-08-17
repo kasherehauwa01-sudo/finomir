@@ -64,7 +64,7 @@ class RussianInvoiceParser:
         if amount is None:
             fallback = re.findall(r"на\s+сумму\s+([\d][\d \t]*(?:[,.]\d{1,2})?)[ \t]*руб", normalized, re.I)
             if fallback: amount, amount_score = _money(fallback[-1]), .62
-        inn = None; inn_valid = False
+        inn = None; inn_valid = False; kpp = None
         inn_sources = []
         for start, end in ((r"(?:поставщик|исполнитель)", r"(?:покупатель|заказчик)"), (r"получатель", r"(?:покупатель|заказчик|сч[её]т\s+на\s+оплату)")):
             context = re.search(start + r"[\s\S]{0,500}?(?=" + end + r"|$)", normalized, re.I)
@@ -75,6 +75,9 @@ class RussianInvoiceParser:
             if len(candidate) in (10, 12):
                 if validate_inn(candidate): inn, inn_valid = candidate, True; break
                 if inn is None: inn = candidate
+        for source in inn_sources:
+            kpp_match = re.search(r"кпп\s*[:№]?\s*(\d{9})", source, re.I)
+            if kpp_match: kpp = kpp_match.group(1); break
         recipient = None; recipient_score = 0.0
         organization = r"((?:ООО|АО|ПАО|ЗАО)\s*[«\"']?[^\n,;]+[»\"']?|ИП\s+[А-ЯЁA-Z][^\n,;]+)"
         for label, score in (("поставщик", .92), ("исполнитель", .9), ("получатель", .78)):
@@ -85,7 +88,7 @@ class RussianInvoiceParser:
             if found: recipient, recipient_score = found.group(1).strip(), .65
         scale = max(.3, min(1.0, ocr_confidence))
         return OCRResult(invoice_number=number, invoice_date=date_value, invoice_amount=amount,
-            counterparty_name=recipient, inn=inn, raw_text=text, blocks=blocks or [],
+            counterparty_name=recipient, inn=inn, kpp=kpp, raw_text=text, blocks=blocks or [],
             confidence={"invoice_number": (header_score if number else 0) * scale, "invoice_date": (.94 if date_value and header else 0) * scale,
              "invoice_amount": amount_score * scale, "counterparty_name": recipient_score * scale,
              "inn": ((.99 if inn_valid else .45) if inn else 0) * scale})

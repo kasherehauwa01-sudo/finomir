@@ -32,6 +32,7 @@ def test_real_apres_invoice():
     assert result.invoice_date == "2026-07-27"
     assert result.invoice_amount == Decimal("7140.00")
     assert result.inn == "3459074228"
+    assert result.kpp == "344301001"
     assert result.counterparty_name == 'ООО "АПРЕС"'
 
 

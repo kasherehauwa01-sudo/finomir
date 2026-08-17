@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Directories } from './pages/Directories';
+import { DirectoryCard } from './pages/DirectoryCard';
 import { Expenses } from './pages/Expenses';
 import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
@@ -21,6 +22,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/expenses/:expenseId" element={<ExpenseCard />} />
           <Route path="/directories" element={<Directories />} />
           <Route path="/directories/:directory" element={<Directories />} />
+          <Route path="/directories/:directory/:itemId" element={<DirectoryCard />} />
           <Route path="/partners" element={<Directories />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

@@ -130,6 +130,11 @@ def partners(search:str|None=None,db:Session=Depends(get_db)):
 @router.post("/partners",status_code=201)
 def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
  x=Partner(**data.model_dump()); db.add(x); db.commit(); return x
+@router.get("/partners/{item_id}")
+def partner_detail(item_id:UUID,db:Session=Depends(get_db)):
+ x=db.get(Partner,item_id)
+ if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
+ return {"id":x.id,"name":x.name,"comment":x.comment,"counterparties":[{"id":item.id,"full_name":item.full_name,"inn":item.inn,"kpp":item.kpp} for item in x.counterparties if not item.deleted_at]}
 @router.put("/partners/{item_id}")
 def update_partner(item_id:UUID,data:PartnerIn,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
@@ -148,6 +153,11 @@ def counterparties(search:str|None=None,inn:str|None=None,db:Session=Depends(get
 def create_counterparty(data:CounterpartyIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id): raise HTTPException(422,"Партнер не найден")
  x=Counterparty(**data.model_dump()); db.add(x); db.commit(); return x
+@router.get("/counterparties/{item_id}")
+def counterparty_detail(item_id:UUID,db:Session=Depends(get_db)):
+ x=db.get(Counterparty,item_id)
+ if not x or x.deleted_at: raise HTTPException(404,"Контрагент не найден")
+ return {"id":x.id,"partner_id":x.partner_id,"full_name":x.full_name,"short_name":x.short_name,"entity_type":x.entity_type,"inn":x.inn,"kpp":x.kpp,"comment":x.comment}
 @router.put("/counterparties/{item_id}")
 def update_counterparty(item_id:UUID,data:CounterpartyIn,db:Session=Depends(get_db)):
  x=db.get(Counterparty,item_id)
@@ -269,8 +279,8 @@ def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
 def _serialize_ocr(result:OCRResult):
- values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn}
- confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0)}
+ values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn,"kpp":result.kpp}
+ confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0),"kpp":result.confidence.get("kpp",result.confidence.get("inn",0))}
  return values,confidence
 def _match_counterparty(result:OCRResult,db:Session):
  normalized_inn="".join(x for x in (result.inn or "") if x.isdigit())
