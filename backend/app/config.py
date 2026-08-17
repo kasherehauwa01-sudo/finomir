@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("/app/data/uploads")
     max_upload_size_mb: int = 20
     ocr_provider: str = "disabled"
+    ocr_service_url: str = "http://ocr:8001"
+    ocr_timeout_seconds: int = 60
     ocr_api_key: str | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @field_validator("base_path")
