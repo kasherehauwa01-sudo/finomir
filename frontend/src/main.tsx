@@ -18,7 +18,6 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/expenses" element={<Expenses />} />
-          <Route path="/expenses/:expenseId" element={<ExpenseCard />} />
           <Route path="/directories" element={<Directories />} />
           <Route path="/directories/:directory" element={<Directories />} />
           <Route path="/partners" element={<Directories />} />

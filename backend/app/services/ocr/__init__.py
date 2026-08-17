@@ -1,13 +1,8 @@
 from .disabled import DisabledOCRProvider
-from .tesseract import TesseractOCRProvider
-from .paddle import PaddleOCRProvider
+from .parser import RussianInvoiceParser
 
 
-def get_provider(name: str, service_url: str = "http://ocr:8001"):
-    if name == "paddle":
-        return PaddleOCRProvider(service_url)
+def get_provider(name:str): return DisabledOCRProvider()
 
-    if name == "tesseract":
-        return TesseractOCRProvider()
 
-    return DisabledOCRProvider()
+__all__ = ["RussianInvoiceParser", "get_provider"]
