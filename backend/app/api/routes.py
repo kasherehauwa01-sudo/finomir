@@ -15,6 +15,7 @@ from app.database import get_db
 from app.models import *
 from app.repositories.expenses import ExpenseRepository
 from app.services.finance import expense_totals,invoice_totals
+from app.services.expense_import import import_expenses_xlsx
 from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
@@ -260,3 +261,13 @@ def export(db:Session=Depends(get_db)):
   for i in e.invoices or [None]:
    paid,remain=invoice_totals(i.amount,[p.amount for p in i.payments if not p.deleted_at]) if i else (Decimal(0),Decimal(0)); ws.append([f"{e.expense_month:02d}.{e.expense_year}",e.partner.name,e.counterparty.full_name,e.counterparty.inn,e.service_name,e.contract_number,i.invoice_number if i else "",i.invoice_date if i else "",i.amount if i else 0,paid,remain])
  stream=BytesIO(); wb.save(stream); stream.seek(0); return StreamingResponse(stream,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":"attachment; filename=expenses.xlsx"})
+
+@router.post("/expenses/import-xlsx")
+async def import_expenses(file:UploadFile=File(...),db:Session=Depends(get_db)):
+ if not (file.filename or "").lower().endswith(".xlsx"):
+  raise HTTPException(422,"Выберите файл в формате XLSX")
+ data=await file.read()
+ if not data: raise HTTPException(422,"Файл пуст")
+ try: return import_expenses_xlsx(data,db)
+ except ValueError as error:
+  db.rollback(); raise HTTPException(422,str(error)) from error
