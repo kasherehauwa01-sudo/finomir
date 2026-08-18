@@ -34,7 +34,7 @@ def test_all_expense_filters_are_applied_before_pagination():
     db = RepositoryDb()
     filters = ExpenseFilters(
         search="реклама", expense_month=8, expense_year=2026, payment_status="unpaid",
-        partner_id=uuid.uuid4(), counterparty_id=uuid.uuid4(), store_id=uuid.uuid4(), tag_id=uuid.uuid4(),
+        partner_ids=(uuid.uuid4(), uuid.uuid4()), counterparty_ids=(uuid.uuid4(),), store_ids=(uuid.uuid4(),), tag_ids=(uuid.uuid4(),),
         amount_from=Decimal("10000"), amount_to=Decimal("50000"), invoice_document="yes", closing_document="no",
     )
 
@@ -51,10 +51,10 @@ def test_all_expense_filters_are_applied_before_pagination():
 
 
 @pytest.mark.parametrize(("field", "value", "fragment"), [
-    ("partner_id", uuid.uuid4(), "expenses.partner_id"),
-    ("counterparty_id", uuid.uuid4(), "expenses.counterparty_id"),
-    ("store_id", uuid.uuid4(), "expense_store_allocations"),
-    ("tag_id", uuid.uuid4(), "expense_tags"),
+    ("partner_ids", (uuid.uuid4(), uuid.uuid4()), "expenses.partner_id"),
+    ("counterparty_ids", (uuid.uuid4(),), "expenses.counterparty_id"),
+    ("store_ids", (uuid.uuid4(),), "expense_store_allocations"),
+    ("tag_ids", (uuid.uuid4(),), "expense_tags"),
     ("amount_from", Decimal("10"), "sum(invoices.amount)"),
     ("amount_to", Decimal("50"), "sum(invoices.amount)"),
     ("invoice_document", "yes", "documents.document_type"),

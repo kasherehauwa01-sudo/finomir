@@ -15,10 +15,14 @@ type Column = typeof columns[number][0];
 type TagAction = 'add' | 'remove' | 'replace';
 
 const emptyFilters: ExpenseFilters = {
-  search: '', period: '', payment_status: 'all', partner_id: '', counterparty_id: '', store_id: '', tag_id: '',
+  search: '', period: '', payment_status: 'all', partner_ids: [], counterparty_ids: [], store_ids: [], tag_ids: [],
   amount_from: '', amount_to: '', invoice_document: 'all', closing_document: 'all',
 };
 const actionLabels: Record<TagAction, string> = { add: 'Добавить теги', remove: 'Удалить теги', replace: 'Заменить теги' };
+
+function CheckboxFilter({ label, values, options, onChange }: { label: string; values: string[]; options: { id: string; name: string }[]; onChange: (values: string[]) => void }) {
+  return <details className="checkbox-filter"><summary>{label}{values.length ? `: ${values.length}` : ': Все'}</summary><div>{options.map((option) => <label key={option.id}><input type="checkbox" checked={values.includes(option.id)} onChange={() => onChange(values.includes(option.id) ? values.filter((id) => id !== option.id) : [...values, option.id])} />{option.name}</label>)}{!options.length && <small>Нет значений</small>}</div></details>;
+}
 
 export function Expenses() {
   const navigate = useNavigate();
@@ -47,7 +51,7 @@ export function Expenses() {
   const visibleIds = useMemo(() => items.map((item) => item.id), [items]);
   const selectedVisible = visibleIds.filter((id) => selected.has(id)).length;
   const allVisibleSelected = visibleIds.length > 0 && selectedVisible === visibleIds.length;
-  const availableCounterparties = filters.partner_id ? counterparties.filter((item) => item.partner_id === filters.partner_id) : counterparties;
+  const availableCounterparties = filters.partner_ids.length ? counterparties.filter((item) => item.partner_id && filters.partner_ids.includes(item.partner_id)) : counterparties;
 
   useEffect(() => {
     Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Store[]>('/stores'), api<Tag[]>('/tags')])
@@ -59,11 +63,11 @@ export function Expenses() {
   useEffect(() => { const available = new Set(visibleIds); setSelected((current) => new Set([...current].filter((id) => available.has(id)))); }, [visibleIds]);
 
   function updateFilter<K extends keyof ExpenseFilters>(key: K, value: ExpenseFilters[K]) {
-    setFilters((current) => {
-      const next = { ...current, [key]: value };
-      if (key === 'partner_id' && next.counterparty_id && !counterparties.some((item) => item.id === next.counterparty_id && (!value || item.partner_id === value))) next.counterparty_id = '';
-      return next;
-    });
+    setFilters((current) => ({ ...current, [key]: value }));
+    setPage(1); setNotice('');
+  }
+  function updatePartners(partnerIds: string[]) {
+    setFilters((current) => ({ ...current, partner_ids: partnerIds, counterparty_ids: current.counterparty_ids.filter((id) => counterparties.some((item) => item.id === id && (!partnerIds.length || Boolean(item.partner_id && partnerIds.includes(item.partner_id))))) }));
     setPage(1); setNotice('');
   }
   function resetFilters() { setFilters(emptyFilters); setPage(1); }
@@ -109,10 +113,10 @@ export function Expenses() {
     {filtersOpen && <section className="toolbar-panel expense-filters">
       <label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={filters.period} onChange={(event) => updateFilter('period', event.target.value)} /></label>
       <label>Статус оплаты<select value={filters.payment_status} onChange={(event) => updateFilter('payment_status', event.target.value)}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label>
-      <label>Партнер<select value={filters.partner_id} onChange={(event) => updateFilter('partner_id', event.target.value)}><option value="">Все партнеры</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Контрагент<select value={filters.counterparty_id} onChange={(event) => updateFilter('counterparty_id', event.target.value)}><option value="">Все контрагенты</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
-      <label>Магазин<select value={filters.store_id} onChange={(event) => updateFilter('store_id', event.target.value)}><option value="">Все магазины</option>{stores.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Тег<select value={filters.tag_id} onChange={(event) => updateFilter('tag_id', event.target.value)}><option value="">Все теги</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <CheckboxFilter label="Партнер" values={filters.partner_ids} options={partners} onChange={updatePartners} />
+      <CheckboxFilter label="Контрагент" values={filters.counterparty_ids} options={availableCounterparties.map((item) => ({ id: item.id, name: item.full_name }))} onChange={(values) => updateFilter('counterparty_ids', values)} />
+      <CheckboxFilter label="Магазин" values={filters.store_ids} options={stores} onChange={(values) => updateFilter('store_ids', values)} />
+      <CheckboxFilter label="Тег" values={filters.tag_ids} options={tags} onChange={(values) => updateFilter('tag_ids', values)} />
       <label>Сумма счетов от<input type="number" min="0" step="0.01" value={filters.amount_from} onChange={(event) => updateFilter('amount_from', event.target.value)} /></label>
       <label>Сумма счетов до<input type="number" min="0" step="0.01" value={filters.amount_to} onChange={(event) => updateFilter('amount_to', event.target.value)} /></label>
       <label>Счет<select value={filters.invoice_document} onChange={(event) => updateFilter('invoice_document', event.target.value)}><option value="all">Все</option><option value="yes">Есть</option><option value="no">Нет</option></select></label>

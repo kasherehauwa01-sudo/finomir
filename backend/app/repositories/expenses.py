@@ -12,10 +12,10 @@ class ExpenseFilters:
  expense_month:int|None=None
  expense_year:int|None=None
  payment_status:str="all"
- partner_id:UUID|None=None
- counterparty_id:UUID|None=None
- store_id:UUID|None=None
- tag_id:UUID|None=None
+ partner_ids:tuple[UUID,...]=()
+ counterparty_ids:tuple[UUID,...]=()
+ store_ids:tuple[UUID,...]=()
+ tag_ids:tuple[UUID,...]=()
  amount_from:Decimal|None=None
  amount_to:Decimal|None=None
  invoice_document:str="all"
@@ -33,10 +33,10 @@ class ExpenseRepository:
   if filters.expense_year: q=q.where(Expense.expense_year==filters.expense_year)
   if filters.payment_status=="paid": q=q.where(invoice_total-paid_total<=0)
   elif filters.payment_status=="unpaid": q=q.where(invoice_total-paid_total>0)
-  if filters.partner_id: q=q.where(Expense.partner_id==filters.partner_id)
-  if filters.counterparty_id: q=q.where(Expense.counterparty_id==filters.counterparty_id)
-  if filters.store_id: q=q.where(Expense.allocations.any(Allocation.store_id==filters.store_id))
-  if filters.tag_id: q=q.where(Expense.tags.any(Tag.id==filters.tag_id))
+  if filters.partner_ids: q=q.where(Expense.partner_id.in_(filters.partner_ids))
+  if filters.counterparty_ids: q=q.where(Expense.counterparty_id.in_(filters.counterparty_ids))
+  if filters.store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(filters.store_ids)))
+  if filters.tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(filters.tag_ids)))
   if filters.amount_from is not None: q=q.where(invoice_total>=filters.amount_from)
   if filters.amount_to is not None: q=q.where(invoice_total<=filters.amount_to)
   for document_type,status in (("invoice",filters.invoice_document),("closing",filters.closing_document)):
