@@ -76,9 +76,10 @@ export function Expenses() {
 
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
-    if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((value) => <span key={value}>{value}</span>)}</div>;
+    if (column === 'stores') return <div className="store-list">{item.stores.map((store) => <span key={store.name}>{store.name} — {money(store.amount)}</span>)}</div>;
+    if (column === 'tags') return <div className="store-list">{item.tags.map((value) => <span key={value}>{value}</span>)}</div>;
     if (column === 'has_invoice_document' || column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'} aria-label={value ? 'Документ загружен' : 'Документ отсутствует'}>{value ? '✓' : '×'}</span>;
-    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
+    return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : typeof value === 'string' ? value : '';
   }
 
   return <>
