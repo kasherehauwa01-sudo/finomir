@@ -1,1 +1,60 @@
-import {useState} from 'react';import {ExpenseModal} from '../components/ExpenseModal';import {money} from '../utils/format';export function Dashboard(){const [modal,setModal]=useState(false);return <><div className="page-head"><div><p className="eyebrow">Текущий месяц</p><h1>Дашборд</h1><p>Финансовая картина маркетингового отдела</p></div><button className="primary" onClick={()=>setModal(true)}>+ Добавить расход</button></div><div className="period"><button className="active">Месяц</button><button>Квартал</button><button>Год</button><button>Период</button></div><div className="kpis"><article><small>Сумма счетов</small><b>{money(0)}</b></article><article><small>Оплачено</small><b>{money(0)}</b></article><article><small>Остаток</small><b>{money(0)}</b></article><article><small>Расходов</small><b>0</b></article></div><section className="empty"><div>₽</div><h2>Данные появятся после первого расхода</h2><p>Добавьте расход вручную или сфотографируйте счёт.</p></section>{modal&&<ExpenseModal close={()=>setModal(false)}/>}</>}
+import { useEffect, useState } from 'react';
+import { ExpenseModal } from '../components/ExpenseModal';
+import { api } from '../api/client';
+import type { DashboardSummary, Store, Tag } from '../types';
+import { money } from '../utils/format';
+
+type Period = DashboardSummary['period'];
+const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
+
+export function Dashboard() {
+  const [modal, setModal] = useState(false);
+  const [period, setPeriod] = useState<Period>('month');
+  const [summary, setSummary] = useState<DashboardSummary>();
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [storeIds, setStoreIds] = useState<string[]>([]);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores')])
+      .then(([tagItems, storeItems]) => { setTags(tagItems); setStores(storeItems); })
+      .catch((reason: Error) => setError(reason.message));
+  }, []);
+
+  useEffect(() => {
+    const query = new URLSearchParams({ period });
+    tagIds.forEach((id) => query.append('tag_ids', id));
+    storeIds.forEach((id) => query.append('store_ids', id));
+    setError('');
+    setSummary(undefined);
+    api<DashboardSummary>(`/dashboard?${query.toString()}`)
+      .then(setSummary)
+      .catch((reason: Error) => setError(reason.message));
+  }, [period, revision, tagIds, storeIds]);
+
+  function toggle(selected: string[], id: string, update: (value: string[]) => void) {
+    update(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
+  }
+
+  const maxTagAmount = Math.max(...(summary?.tag_totals.map((item) => Number(item.amount)) ?? []), 0);
+  const hasFilters = tagIds.length > 0 || storeIds.length > 0;
+
+  return <>
+    <div className="page-head"><div><p className="eyebrow">{labels[period]}</p><h1>Дашборд</h1><p>Финансовая картина маркетингового отдела</p></div><button className="primary" onClick={() => setModal(true)}>+ Добавить расход</button></div>
+    <div className="period">{(Object.keys(labels) as Period[]).map((key) => <button key={key} className={period === key ? 'active' : ''} onClick={() => setPeriod(key)}>{labels[key]}</button>)}</div>
+    <section className="dashboard-filters">
+      <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); }}>Сбросить</button>}</div>
+      <div className="relation-field"><b>Теги</b><div className="relation-options">{tags.map((tag) => { const active = tagIds.includes(tag.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggle(tagIds, tag.id, setTagIds)}>{tag.name}</button>; })}</div></div>
+      <div className="relation-field"><b>Магазины</b><div className="relation-options">{stores.map((store) => { const active = storeIds.includes(store.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggle(storeIds, store.id, setStoreIds)}>{store.name}</button>; })}</div></div>
+    </section>
+    {error ? <div className="state error">Не удалось загрузить данные. {error}</div> : !summary ? <div className="state">Загружаем данные…</div> : <>
+      <div className="kpis"><article><small>Сумма счетов</small><b>{money(summary.invoice_total)}</b></article><article><small>Оплачено</small><b>{money(summary.paid_total)}</b></article><article><small>Остаток</small><b>{money(summary.remaining_total)}</b></article><article><small>Расходов</small><b>{summary.expense_count}</b></article></div>
+      {summary.tag_totals.length > 0 && <section className="tag-chart"><div><h2>Расходы по тегам</h2><p>Сумма счетов за выбранный период и фильтры</p></div>{summary.tag_totals.map((item) => <article key={item.tag}><div className="tag-chart-label"><b>{item.tag}</b><span>{money(item.amount)} · {item.expense_count}</span></div><div className="tag-chart-track"><span style={{ width: `${maxTagAmount ? Math.max(4, Number(item.amount) / maxTagAmount * 100) : 0}%` }} /></div></article>)}</section>}
+      {summary.expense_count === 0 && <section className="empty"><div>₽</div><h2>За выбранный период и фильтры расходов нет</h2><p>Измените фильтры или добавьте новый расход.</p></section>}
+    </>}
+    {modal && <ExpenseModal close={() => setModal(false)} onSaved={() => setRevision((value) => value + 1)} />}
+  </>;
+}
