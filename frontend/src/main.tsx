@@ -4,7 +4,9 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Directories } from './pages/Directories';
+import { DirectoryCard } from './pages/DirectoryCard';
 import { Expenses } from './pages/Expenses';
+import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
 import './styles.css';
 
@@ -17,8 +19,10 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/expenses" element={<Expenses />} />
+          <Route path="/expenses/:expenseId" element={<ExpenseCard />} />
           <Route path="/directories" element={<Directories />} />
           <Route path="/directories/:directory" element={<Directories />} />
+          <Route path="/directories/:directory/:itemId" element={<DirectoryCard />} />
           <Route path="/partners" element={<Directories />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
@@ -28,5 +32,22 @@ createRoot(document.getElementById('root')!).render(
 );
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register(`${__BASE_PATH__}sw.js`));
+  window.addEventListener('load', async () => {
+    try {
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      const registration = await navigator.serviceWorker.register(`${__BASE_PATH__}sw.js`, { updateViaCache: 'none' });
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !reloading) {
+          reloading = true;
+          window.location.reload();
+        }
+      });
+      // Проверяем обновление при каждом запуске установленного PWA, а не ждём
+      // стандартного суточного интервала браузера.
+      await registration.update();
+    } catch {
+      // При отсутствии сети уже установленное PWA продолжает работать из кеша.
+    }
+  });
 }
