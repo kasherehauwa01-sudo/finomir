@@ -1,4 +1,5 @@
 from datetime import date,datetime,timezone
+import logging
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
@@ -18,6 +19,7 @@ from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 router=APIRouter()
+logger=logging.getLogger(__name__)
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
@@ -230,8 +232,11 @@ def _match_counterparty(result:OCRResult,db:Session):
 def _run_recognition(document:Document,db:Session):
  s=get_settings()
  try: result=get_provider(s.ocr_provider).recognize(document.storage_path,document.mime_type)
- except Exception:
-  raise HTTPException(503,"Не удалось уверенно распознать счет. Вы можете заполнить данные вручную или сфотографировать документ еще раз.")
+ except Exception as error:
+  # Техническая причина остаётся в серверном журнале, а пользователь получает
+  # понятное сообщение и может продолжить ручное заполнение.
+  logger.exception("OCR failed for document %s using provider %s",document.id,s.ocr_provider)
+  raise HTTPException(503,"Сервис распознавания временно недоступен. Попробуйте еще раз или заполните данные вручную.") from error
  values,confidence=_serialize_ocr(result); counterparty,matched=_match_counterparty(result,db)
  if matched: confidence["inn"]=max(confidence["inn"],.99); confidence["recipient"]=max(confidence["recipient"],.95)
  recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()

@@ -83,7 +83,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setOcrReviewed(true);
       setMode('manual');
     } catch (error) {
-      setMessage('Не удалось уверенно распознать счет. Вы можете заполнить данные вручную или сфотографировать документ еще раз.');
+      // API уже возвращает безопасное пользовательское описание причины
+      // (формат, размер файла или недоступность OCR), не скрываем его общей фразой.
+      setMessage(error instanceof Error ? error.message : 'Не удалось распознать счет. Попробуйте еще раз или заполните данные вручную.');
       setMode('ocr');
     } finally {
       setBusy(false);
@@ -193,7 +195,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => cameraInput.current?.click()); }}>📷<b>Сфотографировать счет</b><small>Открыть камеру смартфона</small></button>
         <button type="button" onClick={() => setMode('manual')}>✎<b>Вручную</b><small>Заполнить данные самостоятельно</small></button>
       </div>}
-      <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
+      <input ref={cameraInput} hidden type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       {mode === 'ocr' && <>
         <div className="progress">{message || 'Выберите документ'}</div>
         <div className="modal-actions"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>Сфотографировать еще раз</button><button type="button" disabled={busy} onClick={() => setMode('manual')}>Заполнить вручную</button></div>
