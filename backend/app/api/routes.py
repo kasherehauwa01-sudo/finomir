@@ -14,7 +14,8 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import *
 from app.repositories.expenses import ExpenseRepository
-from app.services.finance import expense_totals,invoice_totals
+from app.services.finance import distribute_evenly,expense_totals,invoice_totals
+from app.services.expense_import import import_expenses_excel
 from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
@@ -28,6 +29,11 @@ class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decima
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
+class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1,max_length=100)
+def _redistribute_payments(expense_id:UUID,db:Session):
+ allocations=db.scalars(select(Allocation).where(Allocation.expense_id==expense_id).order_by(Allocation.store_id)).all()
+ paid=db.scalar(select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==expense_id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None))) or Decimal(0)
+ for allocation,amount in zip(allocations,distribute_evenly(Decimal(paid),len(allocations))): allocation.amount=amount
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
@@ -141,7 +147,7 @@ def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  for x in items:
-  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
+  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[{"name":a.store.name,"amount":a.amount} for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
@@ -160,19 +166,28 @@ def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x or x.deleted_at: raise HTTPException(404,"Расход не найден")
  for key,value in data.model_dump(exclude={"allocations","tag_ids"}).items(): setattr(x,key,value)
- existing={item.store_id:item for item in x.allocations}; selected={item.store_id:item for item in data.allocations}
+ existing={item.store_id:item for item in x.allocations}; selected={item.store_id:item for item in data.allocations}; stores_changed=set(existing)!=set(selected)
  for store_id,allocation in list(existing.items()):
   if store_id not in selected: db.delete(allocation)
  for store_id,item in selected.items():
   if store_id in existing: existing[store_id].amount=item.amount
   else: x.allocations.append(Allocation(**item.model_dump()))
  x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]
+ if stores_changed: db.flush(); _redistribute_payments(x.id,db)
  db.commit(); return {"id":x.id}
 @router.delete("/expenses/{expense_id}",status_code=204)
 def delete_expense(expense_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x: raise HTTPException(404,"Расход не найден")
  x.deleted_at=datetime.now(timezone.utc); db.commit()
+@router.post("/expenses/bulk-delete")
+def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
+ items=db.scalars(select(Expense).where(Expense.id.in_(set(data.ids)),Expense.deleted_at.is_(None))).all()
+ deleted_at=datetime.now(timezone.utc)
+ for item in items:
+  item.deleted_at=deleted_at
+  db.add(AuditLog(entity_type="expense",entity_id=item.id,action="deleted",metadata_={"source":"bulk"},created_at=deleted_at))
+ db.commit(); return {"deleted":len(items)}
 @router.post("/expenses/{expense_id}/documents",status_code=201)
 async def upload_expense_document(expense_id:UUID,document_type:str=Query(pattern="^(invoice|closing)$"),file:UploadFile=File(...),db:Session=Depends(get_db)):
  if not db.get(Expense,expense_id): raise HTTPException(404,"Расход не найден")
@@ -208,12 +223,13 @@ def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
 def add_payment(invoice_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  inv=db.get(Invoice,invoice_id)
  if not inv or inv.deleted_at: raise HTTPException(404,"Счет не найден")
- x=Payment(invoice_id=invoice_id,**data.model_dump()); db.add(x); db.flush(); db.add(AuditLog(entity_type="payment",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); paid,remaining=invoice_totals(inv.amount,[p.amount for p in inv.payments if not p.deleted_at]); return {"id":x.id,"paid_amount":paid,"remaining_amount":remaining}
+ x=Payment(invoice_id=invoice_id,**data.model_dump()); db.add(x); db.flush(); _redistribute_payments(inv.expense_id,db); db.add(AuditLog(entity_type="payment",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); paid,remaining=invoice_totals(inv.amount,[p.amount for p in inv.payments if not p.deleted_at]); return {"id":x.id,"paid_amount":paid,"remaining_amount":remaining}
 @router.put("/payments/{payment_id}")
 def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  x=db.get(Payment,payment_id)
  if not x or x.deleted_at: raise HTTPException(404,"Платеж не найден")
  for key,value in data.model_dump().items(): setattr(x,key,value)
+ db.flush(); expense_id=db.scalar(select(Invoice.expense_id).where(Invoice.id==x.invoice_id)); _redistribute_payments(expense_id,db)
  db.commit(); return {"id":x.id}
 def _serialize_ocr(result:OCRResult):
  values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn,"kpp":result.kpp}
@@ -260,3 +276,14 @@ def export(db:Session=Depends(get_db)):
   for i in e.invoices or [None]:
    paid,remain=invoice_totals(i.amount,[p.amount for p in i.payments if not p.deleted_at]) if i else (Decimal(0),Decimal(0)); ws.append([f"{e.expense_month:02d}.{e.expense_year}",e.partner.name,e.counterparty.full_name,e.counterparty.inn,e.service_name,e.contract_number,i.invoice_number if i else "",i.invoice_date if i else "",i.amount if i else 0,paid,remain])
  stream=BytesIO(); wb.save(stream); stream.seek(0); return StreamingResponse(stream,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":"attachment; filename=expenses.xlsx"})
+
+@router.post("/expenses/import-xlsx")
+async def import_expenses(file:UploadFile=File(...),db:Session=Depends(get_db)):
+ filename=file.filename or ""
+ if not filename.lower().endswith((".xlsx",".xls")):
+  raise HTTPException(422,"Выберите файл в формате XLSX или XLS")
+ data=await file.read()
+ if not data: raise HTTPException(422,"Файл пуст")
+ try: return import_expenses_excel(data,filename,db)
+ except ValueError as error:
+  db.rollback(); raise HTTPException(422,str(error)) from error
