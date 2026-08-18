@@ -88,10 +88,10 @@ export function Settings() {
       <section className="settings-card" aria-labelledby="import-title">
         <div className="settings-card__icon" aria-hidden="true">⇧</div>
         <div className="settings-card__content">
-          <h2 id="import-title">Загрузка расходов из XLSX</h2>
+          <h2 id="import-title">Загрузка расходов из XLSX / XLS</h2>
           <p>Каждая заполненная строка файла будет добавлена как отдельный расход.</p>
-          <input ref={fileInput} className="visually-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void handleImport(event.target.files?.[0])} />
-          <button type="button" className="primary" disabled={importing} onClick={() => fileInput.current?.click()}>{importing ? 'Загрузка…' : 'Выбрать XLSX-файл'}</button>
+          <input ref={fileInput} className="visually-hidden" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(event) => void handleImport(event.target.files?.[0])} />
+          <button type="button" className="primary" disabled={importing} onClick={() => fileInput.current?.click()}>{importing ? 'Загрузка…' : 'Выбрать Excel-файл'}</button>
           {importError && <p className="import-result import-result--error" role="alert">{importError}</p>}
           {importResult && <div className="import-result" role="status">
             <strong>Загрузка завершена</strong>

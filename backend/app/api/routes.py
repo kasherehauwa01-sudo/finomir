@@ -15,7 +15,7 @@ from app.database import get_db
 from app.models import *
 from app.repositories.expenses import ExpenseRepository
 from app.services.finance import expense_totals,invoice_totals
-from app.services.expense_import import import_expenses_xlsx
+from app.services.expense_import import import_expenses_excel
 from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
@@ -29,6 +29,7 @@ class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decima
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
+class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1,max_length=100)
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
@@ -174,6 +175,14 @@ def delete_expense(expense_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x: raise HTTPException(404,"Расход не найден")
  x.deleted_at=datetime.now(timezone.utc); db.commit()
+@router.post("/expenses/bulk-delete")
+def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
+ items=db.scalars(select(Expense).where(Expense.id.in_(set(data.ids)),Expense.deleted_at.is_(None))).all()
+ deleted_at=datetime.now(timezone.utc)
+ for item in items:
+  item.deleted_at=deleted_at
+  db.add(AuditLog(entity_type="expense",entity_id=item.id,action="deleted",metadata_={"source":"bulk"},created_at=deleted_at))
+ db.commit(); return {"deleted":len(items)}
 @router.post("/expenses/{expense_id}/documents",status_code=201)
 async def upload_expense_document(expense_id:UUID,document_type:str=Query(pattern="^(invoice|closing)$"),file:UploadFile=File(...),db:Session=Depends(get_db)):
  if not db.get(Expense,expense_id): raise HTTPException(404,"Расход не найден")
@@ -264,10 +273,11 @@ def export(db:Session=Depends(get_db)):
 
 @router.post("/expenses/import-xlsx")
 async def import_expenses(file:UploadFile=File(...),db:Session=Depends(get_db)):
- if not (file.filename or "").lower().endswith(".xlsx"):
-  raise HTTPException(422,"Выберите файл в формате XLSX")
+ filename=file.filename or ""
+ if not filename.lower().endswith((".xlsx",".xls")):
+  raise HTTPException(422,"Выберите файл в формате XLSX или XLS")
  data=await file.read()
  if not data: raise HTTPException(422,"Файл пуст")
- try: return import_expenses_xlsx(data,db)
+ try: return import_expenses_excel(data,filename,db)
  except ValueError as error:
   db.rollback(); raise HTTPException(422,str(error)) from error

@@ -22,7 +22,7 @@ def test_header_row_can_contain_newlines_and_typo_from_template():
         "Наименование контрагента", "Суть рекламного сообщения\n", "Свид рекламы",
         "месяц/год оказания услуг ", "№ счета\n", "Дата счета", "Сумма счета с НДС\n",
     ])
-    row, columns = _find_header(sheet)
+    row, columns = _find_header(tuple(tuple(cell.value for cell in row) for row in sheet.iter_rows()))
     assert row == 2
     assert set(columns) == {"partner", "service", "tag", "period", "invoice_number", "invoice_date", "amount"}
 

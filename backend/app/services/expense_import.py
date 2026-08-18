@@ -82,8 +82,8 @@ def _period(value: object) -> tuple[int, int]:
     raise ValueError(f"некорректный месяц/год «{_text(value)}»")
 
 
-def _find_header(sheet) -> tuple[int, dict[str, int]]:
-    for row_number, row in enumerate(sheet.iter_rows(values_only=True), 1):
+def _find_header(rows) -> tuple[int, dict[str, int]]:
+    for row_number, row in enumerate(rows, 1):
         normalized = [_header(value) for value in row]
         columns = {field: next((i for i, value in enumerate(normalized) if value in aliases), -1) for field, aliases in HEADERS.items()}
         if all(index >= 0 for index in columns.values()):
@@ -91,21 +91,46 @@ def _find_header(sheet) -> tuple[int, dict[str, int]]:
     raise ValueError("не найдена строка заголовков или отсутствуют обязательные колонки")
 
 
-def import_expenses_xlsx(content: bytes, db: Session) -> dict:
+def _read_rows(content: bytes, filename: str) -> list[tuple[object, ...]]:
+    if filename.casefold().endswith(".xls"):
+        import xlrd
+
+        try:
+            workbook = xlrd.open_workbook(file_contents=content)
+        except Exception as error:
+            raise ValueError("файл не является корректной книгой XLS") from error
+        sheet = workbook.sheet_by_index(0)
+        rows = []
+        for row_index in range(sheet.nrows):
+            values = []
+            for cell in sheet.row(row_index):
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    values.append(xlrd.xldate_as_datetime(cell.value, workbook.datemode))
+                elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                    values.append(None)
+                else:
+                    values.append(cell.value)
+            rows.append(tuple(values))
+        return rows
     try:
         workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
     except Exception as error:
         raise ValueError("файл не является корректной книгой XLSX") from error
     sheet = workbook.active
-    header_row, columns = _find_header(sheet)
-    header_values = [cell.value for cell in next(sheet.iter_rows(min_row=header_row, max_row=header_row))]
+    return [tuple(row) for row in sheet.iter_rows(values_only=True)]
+
+
+def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
+    rows = _read_rows(content, filename)
+    header_row, columns = _find_header(rows)
+    header_values = rows[header_row - 1]
     stores = db.scalars(select(Store).where(Store.is_active.is_(True))).all()
     stores_by_name = {_header(store.name): store for store in stores}
     store_columns = [(i, stores_by_name[name]) for i, value in enumerate(header_values) if (name := _header(value)) in stores_by_name]
     loaded = 0
     errors: list[dict] = []
 
-    for row_number, values in enumerate(sheet.iter_rows(min_row=header_row + 1, values_only=True), header_row + 1):
+    for row_number, values in enumerate(rows[header_row:], header_row + 1):
         if not any(value not in (None, "") for value in values):
             continue
         try:
