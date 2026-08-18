@@ -2,6 +2,7 @@ from datetime import date,datetime,timezone
 import logging
 from decimal import Decimal
 from io import BytesIO
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Depends,File,HTTPException,Query,UploadFile
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session,selectinload
 from app.config import get_settings
 from app.database import get_db
 from app.models import *
-from app.repositories.expenses import ExpenseRepository
+from app.repositories.expenses import ExpenseFilters,ExpenseRepository
 from app.services.finance import distribute_evenly,expense_totals,invoice_totals
 from app.services.expense_import import import_expenses_excel
 from app.services.ocr import get_provider
@@ -30,6 +31,7 @@ class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comme
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1,max_length=100)
+class ExpenseBulkTagsIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1,max_length=100); tag_ids:list[UUID]=Field(default_factory=list,max_length=100); action:Literal["add","remove","replace"]
 def _redistribute_payments(expense_id:UUID,db:Session):
  allocations=db.scalars(select(Allocation).where(Allocation.expense_id==expense_id).order_by(Allocation.store_id)).all()
  paid=db.scalar(select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==expense_id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None))) or Decimal(0)
@@ -142,8 +144,11 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  for expense in db.scalars(select(Expense).where(Expense.tags.any(Tag.id==item_id))).all(): expense.tags.remove(x)
  db.delete(x); db.commit()
 @router.get("/expenses")
-def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
- items,total=ExpenseRepository(db).list(page,page_size,search); out=[]; documents_by_expense={x.id:set() for x in items}
+def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_id:UUID|None=None,counterparty_id:UUID|None=None,store_id:UUID|None=None,tag_id:UUID|None=None,amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
+ if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
+ month,year=(map(int,period.split(".")) if period else (None,None))
+ filters=ExpenseFilters(search=search,expense_month=month,expense_year=year,payment_status=payment_status,partner_id=partner_id,counterparty_id=counterparty_id,store_id=store_id,tag_id=tag_id,amount_from=amount_from,amount_to=amount_to,invoice_document=invoice_document,closing_document=closing_document)
+ items,total=ExpenseRepository(db).list(page,page_size,filters); out=[]; documents_by_expense={x.id:set() for x in items}
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  for x in items:
@@ -188,6 +193,22 @@ def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
   item.deleted_at=deleted_at
   db.add(AuditLog(entity_type="expense",entity_id=item.id,action="deleted",metadata_={"source":"bulk"},created_at=deleted_at))
  db.commit(); return {"deleted":len(items)}
+@router.post("/expenses/bulk-tags")
+def bulk_update_expense_tags(data:ExpenseBulkTagsIn,db:Session=Depends(get_db)):
+ expense_ids=set(data.expense_ids); tag_ids=set(data.tag_ids)
+ items=db.scalars(select(Expense).where(Expense.id.in_(expense_ids),Expense.deleted_at.is_(None)).options(selectinload(Expense.tags))).unique().all()
+ if len(items)!=len(expense_ids): raise HTTPException(404,"Один или несколько расходов не найдены")
+ tags=db.scalars(select(Tag).where(Tag.id.in_(tag_ids))).all() if tag_ids else []
+ if len(tags)!=len(tag_ids): raise HTTPException(422,"Один или несколько тегов не найдены")
+ selected={tag.id:tag for tag in tags}; changed_at=datetime.now(timezone.utc)
+ for item in items:
+  current={tag.id:tag for tag in item.tags}
+  if data.action=="add": current.update(selected)
+  elif data.action=="remove": current={tag_id:tag for tag_id,tag in current.items() if tag_id not in selected}
+  else: current=selected.copy()
+  item.tags=list(current.values())
+  db.add(AuditLog(entity_type="expense",entity_id=item.id,action="bulk_tags",metadata_={"source":"bulk","action":data.action,"tag_ids":[str(tag_id) for tag_id in tag_ids]},created_at=changed_at))
+ db.commit(); return {"updated":len(items)}
 @router.post("/expenses/{expense_id}/documents",status_code=201)
 async def upload_expense_document(expense_id:UUID,document_type:str=Query(pattern="^(invoice|closing)$"),file:UploadFile=File(...),db:Session=Depends(get_db)):
  if not db.get(Expense,expense_id): raise HTTPException(404,"Расход не найден")
