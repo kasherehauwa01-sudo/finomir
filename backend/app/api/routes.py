@@ -170,8 +170,8 @@ def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  for store_id,allocation in list(existing.items()):
   if store_id not in selected: db.delete(allocation)
  for store_id,item in selected.items():
- if store_id in existing: existing[store_id].amount=item.amount
- else: x.allocations.append(Allocation(**item.model_dump()))
+  if store_id in existing: existing[store_id].amount=item.amount
+  else: x.allocations.append(Allocation(**item.model_dump()))
  x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]
  if stores_changed: db.flush(); _redistribute_payments(x.id,db)
  db.commit(); return {"id":x.id}
