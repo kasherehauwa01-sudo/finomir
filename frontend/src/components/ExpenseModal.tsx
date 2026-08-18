@@ -147,7 +147,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       if (invoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
@@ -162,6 +161,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           });
         }
       }
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       onSaved();
       close();
     } catch (error) {
