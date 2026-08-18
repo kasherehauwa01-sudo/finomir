@@ -33,7 +33,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const input = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
 
   function requestClose() {
@@ -192,11 +191,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       <h2>{mode === 'choice' ? 'Как добавить расход?' : mode === 'ocr' ? 'Распознавание счета' : 'Новый расход'}</h2>
       {mode === 'choice' && <div className="choices">
         <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => cameraInput.current?.click()); }}>📷<b>Сфотографировать счет</b><small>Открыть камеру смартфона</small></button>
-        <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => input.current?.click()); }}>▣<b>Выбрать файл</b><small>JPEG, PNG или PDF</small></button>
         <button type="button" onClick={() => setMode('manual')}>✎<b>Вручную</b><small>Заполнить данные самостоятельно</small></button>
       </div>}
       <input ref={cameraInput} hidden type="file" accept="image/*" capture="environment" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
-      <input ref={input} hidden type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       {mode === 'ocr' && <>
         <div className="progress">{message || 'Выберите документ'}</div>
         <div className="modal-actions"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>Сфотографировать еще раз</button><button type="button" disabled={busy} onClick={() => setMode('manual')}>Заполнить вручную</button></div>

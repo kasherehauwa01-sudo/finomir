@@ -29,9 +29,11 @@ class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
  q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
+ if tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(tag_ids)))
+ if store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(store_ids)))
  items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
  for expense in items:
   expense_total=Decimal(0)

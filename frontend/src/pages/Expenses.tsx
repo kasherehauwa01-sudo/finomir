@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 const columns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
   ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
-  ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Закрывающий документ'],
+  ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
 type Column = typeof columns[number][0];
 
