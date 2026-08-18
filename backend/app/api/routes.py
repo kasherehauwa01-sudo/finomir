@@ -39,11 +39,29 @@ def _redistribute_payments(expense_id:UUID,db:Session):
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year|custom)$"),date_from:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),date_to:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
+ if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
- q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
+ q=select(Expense).where(Expense.deleted_at.is_(None)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
+ if period=="custom":
+  if not date_from or not date_to: raise HTTPException(422,"Для произвольного периода укажите начало и конец")
+  start_year,start_month_custom=map(int,date_from.split("-")); end_year,end_month=map(int,date_to.split("-")); start_value=start_year*12+start_month_custom; end_value=end_year*12+end_month
+  if start_value>end_value: raise HTTPException(422,"Начало периода не может быть позже окончания")
+  q=q.where(Expense.expense_year*12+Expense.expense_month>=start_value,Expense.expense_year*12+Expense.expense_month<=end_value)
+ else: q=q.where(Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12))
+ invoice_sum=select(func.coalesce(func.sum(Invoice.amount),0)).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None)).correlate(Expense).scalar_subquery(); paid_sum=select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
  if tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(tag_ids)))
  if store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(store_ids)))
+ if partner_ids: q=q.where(Expense.partner_id.in_(partner_ids))
+ if counterparty_ids: q=q.where(Expense.counterparty_id.in_(counterparty_ids))
+ if amount_from is not None: q=q.where(invoice_sum>=amount_from)
+ if amount_to is not None: q=q.where(invoice_sum<=amount_to)
+ if payment_status=="paid": q=q.where(invoice_sum-paid_sum<=0)
+ elif payment_status=="unpaid": q=q.where(invoice_sum-paid_sum>0)
+ for document_type,status in (("invoice",invoice_document),("closing",closing_document)):
+  if status!="all":
+   has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
+   q=q.where(has_document if status=="yes" else ~has_document)
  items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
  for expense in items:
   expense_total=Decimal(0)
