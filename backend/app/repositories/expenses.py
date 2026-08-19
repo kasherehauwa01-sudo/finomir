@@ -45,4 +45,8 @@ class ExpenseRepository:
     has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
     q=q.where(has_document if status=="yes" else ~has_document)
   total=self.db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0
+  q=q.options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags),selectinload(Expense.allocations).selectinload(Allocation.store))
   return self.db.scalars(q.order_by(Expense.updated_at.desc()).offset((page-1)*page_size).limit(page_size)).unique().all(),total
+ def ids(self,filters:ExpenseFilters|None=None):
+  q=self._filtered_query(filters or ExpenseFilters()).with_only_columns(Expense.id).order_by(None)
+  return self.db.scalars(q).all()

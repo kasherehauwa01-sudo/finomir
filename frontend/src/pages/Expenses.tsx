@@ -6,9 +6,9 @@ import { type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 
-const columns = [
+export const expenseColumns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
-  ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
+  ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_number', 'Номер счета'], ['invoice_date', 'Дата счета'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
 type Column = typeof columns[number][0];
@@ -110,6 +110,7 @@ export function Expenses() {
       <input type="search" placeholder="Поиск по партнеру, ИНН, счету…" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} />
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
+      <button type="button" disabled={selectingAll || !data?.total} onClick={() => void toggleAllFiltered()}>{selectingAll ? 'Выбираем…' : data?.total && selected.size === data.total ? 'Снять выделение' : 'Выбрать все'}</button>
     </div>
     {filtersOpen && <section className="toolbar-panel expense-filters">
       <label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={filters.period} onChange={(event) => updateFilter('period', event.target.value)} /></label>
