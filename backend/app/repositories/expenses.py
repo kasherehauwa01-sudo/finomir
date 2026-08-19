@@ -52,16 +52,17 @@ class ExpenseRepository:
     has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
     q=q.where(has_document if status=="yes" else ~has_document)
   return q
- def list(self,page:int,page_size:int,filters:ExpenseFilters|None=None,sort_by:str="period",sort_order:str="desc"):
+ def list(self,page:int,page_size:int,filters:ExpenseFilters|None=None,sort_by:str="invoice_date",sort_order:str="desc"):
   q=self._filtered_query(filters or ExpenseFilters())
   total=self.db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0
   q=q.options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags),selectinload(Expense.allocations).selectinload(Allocation.store))
   invoice_total=select(func.coalesce(func.sum(Invoice.amount),0)).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
   paid_total=select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
   first_tag=select(func.min(func.lower(Tag.name))).join(ExpenseTag,ExpenseTag.tag_id==Tag.id).where(ExpenseTag.expense_id==Expense.id).correlate(Expense).scalar_subquery()
-  sort_columns={"period":(Expense.expense_year,Expense.expense_month),"partner":(func.lower(Partner.name),),"counterparty":(func.lower(Counterparty.full_name),),"tags":(first_tag,),"invoice_total":(invoice_total,),"paid_total":(paid_total,),"remaining_total":(invoice_total-paid_total,)}
+  latest_invoice_date=select(func.max(Invoice.invoice_date)).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
+  sort_columns={"invoice_date":(latest_invoice_date,),"period":(Expense.expense_year,Expense.expense_month),"partner":(func.lower(Partner.name),),"counterparty":(func.lower(Counterparty.full_name),),"tags":(first_tag,),"invoice_total":(invoice_total,),"paid_total":(paid_total,),"remaining_total":(invoice_total-paid_total,)}
   direction="asc" if sort_order=="asc" else "desc"
-  order=[getattr(column,direction)().nulls_last() for column in sort_columns.get(sort_by,sort_columns["period"])]
+  order=[getattr(column,direction)().nulls_last() for column in sort_columns.get(sort_by,sort_columns["invoice_date"])]
   return self.db.scalars(q.order_by(*order,Expense.id.asc()).offset((page-1)*page_size).limit(page_size)).unique().all(),total
  def ids(self,filters:ExpenseFilters|None=None):
   q=self._filtered_query(filters or ExpenseFilters()).with_only_columns(Expense.id).order_by(None)

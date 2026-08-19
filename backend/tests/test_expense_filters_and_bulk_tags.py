@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
-from app.api.routes import ExpenseBulkTagsIn, bulk_update_expense_tags
-from app.models import AuditLog, Expense, Tag
+from app.api.routes import ExpenseBulkTagsIn, ExpenseIn, bulk_update_expense_tags, invoice_duplicate
+from app.models import AuditLog, Expense, Invoice, Tag
 from app.repositories.expenses import ExpenseFilters, ExpenseRepository
 
 
@@ -29,7 +29,23 @@ def test_expenses_without_filters_keep_default_pagination():
     sql = str(db.query.compile(dialect=postgresql.dialect()))
     assert items == [] and total == 73
     assert "LIMIT" in sql and "OFFSET" in sql
-    assert "expenses.expense_year DESC" in sql and "expenses.expense_month DESC" in sql
+    assert "max(invoices.invoice_date)" in sql and " DESC" in sql
+
+
+@pytest.mark.parametrize("tag_ids", [[], [uuid.uuid4(), uuid.uuid4()]])
+def test_expense_requires_exactly_one_tag(tag_ids):
+    with pytest.raises(ValidationError):
+        ExpenseIn(partner_id=uuid.uuid4(),counterparty_id=uuid.uuid4(),service_name="Услуга",expense_month=1,expense_year=2026,tag_ids=tag_ids)
+
+
+def test_duplicate_invoice_check_reports_existing_expense():
+    existing=Invoice(id=uuid.uuid4(),expense_id=uuid.uuid4(),invoice_number="15",invoice_date=date(2026,1,1),amount=Decimal("785"))
+    class Db:
+        def scalar(self, query):
+            sql=str(query.compile(dialect=postgresql.dialect()))
+            assert "lower(trim(invoices.invoice_number))" in sql and "invoices.amount" in sql
+            return existing
+    assert invoice_duplicate("15",Decimal("785"),Db())=={"duplicate":True,"expense_id":str(existing.expense_id)}
 
 
 @pytest.mark.parametrize(("sort_by", "fragment"), [

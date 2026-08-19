@@ -47,7 +47,7 @@ export function Expenses() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [applyingTags, setApplyingTags] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
-  const [sort, setSort] = useState<ExpenseSort>({ by: 'period', order: 'desc' });
+  const [sort, setSort] = useState<ExpenseSort>({ by: 'invoice_date', order: 'desc' });
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);

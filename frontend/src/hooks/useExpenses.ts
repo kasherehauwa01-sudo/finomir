@@ -7,9 +7,9 @@ export type ExpenseFilters = {
   store_ids: string[]; tag_ids: string[]; amount_from: string; amount_to: string; invoice_date_from: string; invoice_date_to: string;
   invoice_document: string; closing_document: string;
 };
-export type ExpenseSort = { by: 'period' | 'partner' | 'counterparty' | 'tags' | 'invoice_total' | 'paid_total' | 'remaining_total'; order: 'asc' | 'desc' };
+export type ExpenseSort = { by: 'invoice_date' | 'period' | 'partner' | 'counterparty' | 'tags' | 'invoice_total' | 'paid_total' | 'remaining_total'; order: 'asc' | 'desc' };
 
-export function buildExpenseQuery(filters: ExpenseFilters, page: number, sort: ExpenseSort = { by: 'period', order: 'desc' }): string {
+export function buildExpenseQuery(filters: ExpenseFilters, page: number, sort: ExpenseSort = { by: 'invoice_date', order: 'desc' }): string {
   const params = new URLSearchParams({ page: String(page), page_size: '25' });
   Object.entries(filters).forEach(([key, value]) => {
     if (Array.isArray(value)) { value.forEach((item) => params.append(key, item)); return; }
@@ -29,7 +29,7 @@ export function buildExpenseIdsQuery(filters: ExpenseFilters): string {
   return params.toString();
 }
 
-export function useExpenses(filters: ExpenseFilters, page: number, revision = 0, sort: ExpenseSort = { by: 'period', order: 'desc' }) {
+export function useExpenses(filters: ExpenseFilters, page: number, revision = 0, sort: ExpenseSort = { by: 'invoice_date', order: 'desc' }) {
   const [data, setData] = useState<Page<Expense>>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);

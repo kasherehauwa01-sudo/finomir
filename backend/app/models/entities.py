@@ -8,8 +8,8 @@ from app.database import Base
 from .base import SoftDeleteMixin, TimestampMixin, UUIDMixin
 
 class Partner(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
- __tablename__="partners"; name:Mapped[str]=mapped_column(String(255),index=True); comment:Mapped[str|None]=mapped_column(Text)
- counterparties:Mapped[list["Counterparty"]]=relationship(back_populates="partner")
+ __tablename__="partners"; name:Mapped[str]=mapped_column(String(255),index=True); comment:Mapped[str|None]=mapped_column(Text); tag_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("tags.id",ondelete="SET NULL"),index=True)
+ counterparties:Mapped[list["Counterparty"]]=relationship(back_populates="partner"); tag:Mapped["Tag|None"]=relationship()
 class Counterparty(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
  __tablename__="counterparties"; partner_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("partners.id"),index=True,nullable=True); full_name:Mapped[str]=mapped_column(String(500)); short_name:Mapped[str|None]=mapped_column(String(255)); entity_type:Mapped[str]=mapped_column(String(30)); inn:Mapped[str|None]=mapped_column(String(12),index=True); kpp:Mapped[str|None]=mapped_column(String(9)); comment:Mapped[str|None]=mapped_column(Text); partner:Mapped[Partner|None]=relationship(back_populates="counterparties")
 class Tag(Base,UUIDMixin,TimestampMixin):

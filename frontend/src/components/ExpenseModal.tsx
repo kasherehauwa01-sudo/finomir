@@ -9,6 +9,9 @@ const today = new Date().toISOString().slice(0, 10);
 export function invoiceAmountForSubmission(invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) {
   return invoicePayment ? invoiceAmount : paymentAmount;
 }
+export const duplicateInvoiceQuery = (invoiceNumber:string,amount:string) => new URLSearchParams({invoice_number:invoiceNumber.trim(),amount}).toString();
+export const singleTagSelection = (current:string[],tagId:string) => current.includes(tagId)?[]:[tagId];
+export const partnerDefaultTagIds = (partners:Partner[],partnerId:string) => { const tagId=partners.find(item=>item.id===partnerId)?.tag_id; return tagId?[tagId]:[]; };
 export const filterExpensePartners = (items:Partner[],search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
 export const filterExpenseCounterparties = (items:Counterparty[],partnerId:string,search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>(!partnerId||item.partner_id===partnerId)&&(!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)||item.id===selectedId)); };
 
@@ -102,6 +105,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       if (counterparty?.partner_id) {
         setCounterpartyId(counterparty.id);
         setPartnerId(counterparty.partner_id);
+        setTagIds(partnerDefaultTagIds(partners,counterparty.partner_id));
       }
       setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
       setOcrReviewed(true);
@@ -125,6 +129,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setPartners((current) => [...current, item]);
     setPartnerId(item.id);
     setCounterpartyId('');
+    setTagIds(partnerDefaultTagIds([item],item.id));
   }
 
   async function createCounterparty() {
@@ -146,9 +151,15 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     event.preventDefault();
     if (!partnerId) { setMessage('Выберите партнера.'); return; }
     if (!counterpartyId && (!ocrReviewed || !recipient.trim())) { setMessage('Выберите контрагента.'); return; }
+    if (tagIds.length !== 1) { setMessage('Выберите один обязательный тег.'); return; }
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
+      const amountForInvoice = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
+      if (amountForInvoice && invoiceNumber.trim()) {
+        const check=await api<{duplicate:boolean}>(`/invoices/duplicate?${duplicateInvoiceQuery(invoiceNumber,amountForInvoice)}`);
+        if(check.duplicate) throw new Error('Дубль счета: такой номер счета и сумма уже существуют. Расход не сохранен.');
+      }
       let selectedCounterpartyId = counterpartyId;
       if (!selectedCounterpartyId && ocrReviewed && partnerId && recipient.trim()) {
         const digits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
@@ -173,7 +184,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      const amountForInvoice = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
       if (amountForInvoice) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
@@ -211,7 +221,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   }
 
   function toggleTag(tagId: string) {
-    setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
+    setTagIds((current) => singleTagSelection(current,tagId));
   }
 
   return <div className="overlay" role="dialog" aria-modal="true">
@@ -230,7 +240,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
-        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map(item=>({id:item.id,label:item.name,search:item.name}))} onChange={(id)=>{setPartnerId(id);setCounterpartyId('');}}/>
+        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map(item=>({id:item.id,label:item.name,search:item.name}))} onChange={(id)=>{setPartnerId(id);setCounterpartyId('');setTagIds(partnerDefaultTagIds(partners,id));}}/>
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
         <SearchSelect label="Контрагент" value={counterpartyId} placeholder={ocrReviewed&&recipient.trim()?'Будет создан автоматически после сохранения':'Выберите контрагента'} searchPlaceholder="Поиск по названию или ИНН" options={availableCounterparties.map(item=>({id:item.id,label:item.full_name,search:`${item.full_name} ${item.inn??''}`}))} onChange={setCounterpartyId}/>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
@@ -245,9 +255,10 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
-        <fieldset><legend>Теги</legend>
+        <fieldset><legend>Тег *</legend>
           <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
           {!tags.length && <small>В справочнике пока нет тегов.</small>}
+          {!!tags.length && !tagIds.length && <small>Выберите один тег — без него расход сохранить нельзя.</small>}
         </fieldset>
         <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
       </form>}

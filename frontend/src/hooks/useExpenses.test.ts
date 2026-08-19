@@ -15,7 +15,7 @@ describe('expense filters query', () => {
     expect(params.get('amount_from')).toBe('10000');
     expect(params.get('invoice_date_from')).toBe('2026-01-01');
     expect(params.get('invoice_date_to')).toBe('2026-12-31');
-    expect(params.get('sort_by')).toBe('period');
+    expect(params.get('sort_by')).toBe('invoice_date');
     expect(params.get('sort_order')).toBe('desc');
   });
 

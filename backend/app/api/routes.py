@@ -23,10 +23,10 @@ from app.services.storage import save_bytes
 from app.services.notifications import notify_new_invoice
 router=APIRouter()
 logger=logging.getLogger(__name__)
-class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
+class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; tag_id:UUID|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
-class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list)
+class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(min_length=1,max_length=1)
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
@@ -80,6 +80,7 @@ def partners(search:str|None=None,db:Session=Depends(get_db)):
  return db.scalars(q.order_by(Partner.name)).all()
 @router.post("/partners",status_code=201)
 def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
+ if data.tag_id and not db.get(Tag,data.tag_id): raise HTTPException(422,"Тег не найден")
  x=Partner(**data.model_dump(exclude={"counterparty_ids"})); db.add(x); db.flush()
  for item_id in data.counterparty_ids or []:
   item=db.get(Counterparty,item_id)
@@ -89,11 +90,12 @@ def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
 def partner_detail(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
  if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
- return {"id":x.id,"name":x.name,"comment":x.comment,"counterparties":[{"id":item.id,"full_name":item.full_name,"inn":item.inn,"kpp":item.kpp} for item in x.counterparties if not item.deleted_at]}
+ return {"id":x.id,"name":x.name,"comment":x.comment,"tag_id":x.tag_id,"counterparties":[{"id":item.id,"full_name":item.full_name,"inn":item.inn,"kpp":item.kpp} for item in x.counterparties if not item.deleted_at]}
 @router.put("/partners/{item_id}")
 def update_partner(item_id:UUID,data:PartnerIn,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
  if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
+ if data.tag_id and not db.get(Tag,data.tag_id): raise HTTPException(422,"Тег не найден")
  for key,value in data.model_dump(exclude={"counterparty_ids"}).items(): setattr(x,key,value)
  if data.counterparty_ids is not None:
   selected=set(data.counterparty_ids)
@@ -164,7 +166,7 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  for expense in db.scalars(select(Expense).where(Expense.tags.any(Tag.id==item_id))).all(): expense.tags.remove(x)
  db.delete(x); db.commit()
 @router.get("/expenses")
-def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",sort_by:Literal["period","partner","counterparty","tags","invoice_total","paid_total","remaining_total"]="period",sort_order:Literal["asc","desc"]="desc",db:Session=Depends(get_db)):
+def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",sort_by:Literal["invoice_date","period","partner","counterparty","tags","invoice_total","paid_total","remaining_total"]="invoice_date",sort_order:Literal["asc","desc"]="desc",db:Session=Depends(get_db)):
  if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
  if invoice_date_from and invoice_date_to and invoice_date_from>invoice_date_to: raise HTTPException(422,"Дата счета от не может быть позже даты счета до")
  month,year=(map(int,period.split(".")) if period else (None,None))
@@ -267,13 +269,19 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
  if not exp or exp.deleted_at: raise HTTPException(404,"Расход не найден")
- dup=db.scalar(select(Invoice).join(Expense).join(Counterparty).where(Counterparty.inn==exp.counterparty.inn,func.lower(Invoice.invoice_number)==data.invoice_number.lower(),Invoice.invoice_date==data.invoice_date,Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
- if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Возможно, этот счет уже существует","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
+ dup=db.scalar(select(Invoice).where(func.lower(func.trim(Invoice.invoice_number))==data.invoice_number.strip().lower(),Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
+ if dup: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  x=Invoice(expense_id=expense_id,**data.model_dump(exclude={"allow_duplicate"})); db.add(x); db.flush(); db.add(AuditLog(entity_type="invoice",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
+@router.get("/invoices/duplicate")
+def invoice_duplicate(invoice_number:str=Query(min_length=1),amount:Decimal=Query(ge=0),db:Session=Depends(get_db)):
+ duplicate=db.scalar(select(Invoice).where(func.lower(func.trim(Invoice.invoice_number))==invoice_number.strip().lower(),Invoice.amount==amount,Invoice.deleted_at.is_(None)))
+ return {"duplicate":bool(duplicate),"expense_id":str(duplicate.expense_id) if duplicate else None}
 @router.put("/invoices/{invoice_id}")
 def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  x=db.get(Invoice,invoice_id)
  if not x or x.deleted_at: raise HTTPException(404,"Счет не найден")
+ dup=db.scalar(select(Invoice).where(Invoice.id!=invoice_id,func.lower(func.trim(Invoice.invoice_number))==data.invoice_number.strip().lower(),Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
+ if dup: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  for key,value in data.model_dump(exclude={"allow_duplicate"},exclude_unset=True).items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
 @router.post("/invoices/{invoice_id}/payments",status_code=201)
