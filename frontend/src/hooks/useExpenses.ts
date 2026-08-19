@@ -8,9 +8,10 @@ export type ExpenseFilters = {
   invoice_document: string; closing_document: string;
 };
 export type ExpenseSort = { by: 'invoice_date' | 'period' | 'partner' | 'counterparty' | 'tags' | 'invoice_total' | 'paid_total' | 'remaining_total'; order: 'asc' | 'desc' };
+export const EXPENSES_PAGE_SIZE = 100;
 
 export function buildExpenseQuery(filters: ExpenseFilters, page: number, sort: ExpenseSort = { by: 'invoice_date', order: 'desc' }): string {
-  const params = new URLSearchParams({ page: String(page), page_size: '25' });
+  const params = new URLSearchParams({ page: String(page), page_size: String(EXPENSES_PAGE_SIZE) });
   Object.entries(filters).forEach(([key, value]) => {
     if (Array.isArray(value)) { value.forEach((item) => params.append(key, item)); return; }
     if (!value || value === 'all' || (key === 'period' && !/^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$/.test(value))) return;

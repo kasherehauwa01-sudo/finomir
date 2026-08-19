@@ -10,6 +10,7 @@ describe('expense filters query', () => {
   it('передает все совместные фильтры и страницу на backend', () => {
     const params = new URLSearchParams(buildExpenseQuery(filters, 3));
     expect(params.get('page')).toBe('3');
+    expect(params.get('page_size')).toBe('100');
     expect(params.getAll('partner_ids')).toEqual(filters.partner_ids);
     expect(params.getAll('tag_ids')).toEqual(filters.tag_ids);
     expect(params.get('amount_from')).toBe('10000');
