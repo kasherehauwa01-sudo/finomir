@@ -8,7 +8,7 @@ export type Tag = { id: string; name: string };
 export type ExpenseImportResult = { loaded: number; errors_count: number; errors: { row: number; message: string }[] };
 export type OCRResponse = {
   status: 'success'; document_id: string;
-  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField };
+  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField; service_name: OCRField };
   counterparty: { matched: boolean; id: string | null; name: string | null }; raw_text: string;
 };
 export type OCRField = { value: string | null; confidence: number };

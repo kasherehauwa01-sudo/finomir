@@ -75,16 +75,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     }
   }
 
-  function toggleInvoicePayment() {
-    if (invoicePayment) {
-      invoiceFieldsBeforeCash.current = { number: invoiceNumber, date: invoiceDate, amount: invoiceAmount };
-      setInvoicePayment(false); setInvoiceNumber('Наличные'); setInvoiceDate(today); setInvoiceAmount('');
-    } else {
-      const previous = invoiceFieldsBeforeCash.current;
-      setInvoicePayment(true); setInvoiceNumber(previous.number); setInvoiceDate(previous.date); setInvoiceAmount(previous.amount);
-    }
-  }
-
   async function upload(file: File) {
     setMessage('Распознаём документ…');
     setBusy(true);
@@ -99,6 +89,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setInvoiceDate(response.fields.invoice_date.value ?? '');
       setInvoiceAmount(response.fields.amount.value ?? '');
       setPaymentAmount(response.fields.amount.value ?? '');
+      setServiceName(response.fields.service_name.value ?? '');
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
@@ -236,7 +227,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
         <div className="entity-selector"><label>Поиск контрагента<input type="search" placeholder="Название или ИНН" value={counterpartySearch} onChange={(event)=>setCounterpartySearch(event.target.value)}/></label><label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label></div>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
-        <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
+        <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" />{ocrReviewed && ocrConfidence.service_name < .7 && <small>⚠ Проверьте наименование товара, работы или услуги</small>}</label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
           <label className="payment-toggle"><input type="checkbox" role="switch" checked={invoicePayment} onChange={toggleInvoicePayment} /><span aria-hidden="true" />Оплата по счету</label>
