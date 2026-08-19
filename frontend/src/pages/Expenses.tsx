@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModal';
-import { buildExpenseIdsQuery, type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
+import { buildExpenseIdsQuery, type ExpenseFilters, type ExpenseSort, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 
@@ -15,6 +15,7 @@ const columns = expenseColumns;
 type Column = typeof expenseColumns[number][0];
 type TagAction = 'add' | 'remove' | 'replace';
 export const defaultExpenseColumns = expenseColumns.map(([key]) => key).filter((key) => key !== 'invoice_number' && key !== 'invoice_date');
+const sortableColumns = new Set<Column>(['period', 'partner', 'counterparty', 'tags', 'invoice_total', 'paid_total', 'remaining_total']);
 
 const emptyFilters: ExpenseFilters = {
   search: '', period: '', payment_status: 'all', partner_ids: [], counterparty_ids: [], store_ids: [], tag_ids: [],
@@ -44,12 +45,13 @@ export function Expenses() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [applyingTags, setApplyingTags] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
+  const [sort, setSort] = useState<ExpenseSort>({ by: 'period', order: 'desc' });
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  const { data, error, loading } = useExpenses(filters, page, revision);
+  const { data, error, loading } = useExpenses(filters, page, revision, sort);
   const items = useMemo(() => data?.items ?? [], [data]);
   const visibleIds = useMemo(() => items.map((item) => item.id), [items]);
   const selectedVisible = visibleIds.filter((id) => selected.has(id)).length;
@@ -75,6 +77,11 @@ export function Expenses() {
   function resetFilters() { setFilters(emptyFilters); setPage(1); setSelected(new Set()); }
   function toggleAll() {
     setSelected((current) => { const next = new Set(current); visibleIds.forEach((id) => allVisibleSelected ? next.delete(id) : next.add(id)); return next; });
+  }
+  function changeSort(column: Column) {
+    if (!sortableColumns.has(column)) return;
+    setSort((current) => ({ by: column as ExpenseSort['by'], order: current.by === column && current.order === 'desc' ? 'asc' : 'desc' }));
+    setPage(1);
   }
   async function toggleAllFiltered() {
     if (data?.total && selected.size === data.total) { setSelected(new Set()); return; }
@@ -139,7 +146,7 @@ export function Expenses() {
     {columnsOpen && <section className="toolbar-panel columns-panel">{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</section>}
     {actionError && <p className="selection-error error" role="alert">{actionError}</p>}{notice && <p className="notice" role="status">{notice}</p>}
     {selected.size > 0 && <div className="selection-bar"><span>Выбрано: {selected.size}</span><button type="button" onClick={() => setTagModal(true)}>Изменить теги</button><button type="button" className="danger" disabled={deleting} onClick={() => void deleteSelected()}>{deleting ? 'Удаление…' : 'Удалить выбранные'}</button></div>}
-    {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Не удалось загрузить расходы. {error}</div> : !items.length ? <section className="empty"><h2>Ничего не найдено</h2><p>Измените запрос или сбросьте фильтры.</p></section> : <div className="table-wrap"><table><thead><tr><th className="selection-cell"><input ref={selectAllRef} type="checkbox" aria-label="Выбрать все расходы на странице" checked={allVisibleSelected} onChange={toggleAll} /></th>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th className={key === 'stores' ? 'stores-column' : undefined} key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className={`clickable-row${selected.has(item.id) ? ' selected-row' : ''}`} tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}><td className="selection-cell" data-label="Выбрать" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Выбрать расход: ${item.service_name}`} checked={selected.has(item.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })} /></td>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <td className={key === 'stores' ? 'stores-column' : undefined} key={key} data-label={label}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
+    {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Не удалось загрузить расходы. {error}</div> : !items.length ? <section className="empty"><h2>Ничего не найдено</h2><p>Измените запрос или сбросьте фильтры.</p></section> : <div className="table-wrap"><table><thead><tr><th className="selection-cell"><input ref={selectAllRef} type="checkbox" aria-label="Выбрать все расходы на странице" checked={allVisibleSelected} onChange={toggleAll} /></th>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th className={key === 'stores' ? 'stores-column' : undefined} key={key}>{sortableColumns.has(key) ? <button type="button" className="sort-button" onClick={() => changeSort(key)}>{label}{sort.by === key ? <span>{sort.order === 'desc' ? ' ↓' : ' ↑'}</span> : null}</button> : label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className={`clickable-row${selected.has(item.id) ? ' selected-row' : ''}`} tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}><td className="selection-cell" data-label="Выбрать" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Выбрать расход: ${item.service_name}`} checked={selected.has(item.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })} /></td>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <td className={key === 'stores' ? 'stores-column' : undefined} key={key} data-label={label}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
     {data && data.total > data.page_size && <div className="pagination"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Назад</button><span>Страница {page} из {Math.ceil(data.total / data.page_size)}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage((value) => value + 1)}>Далее</button></div>}
     {modal && <ExpenseModal close={() => setModal(false)} onSaved={() => setRevision((value) => value + 1)} />}
     {tagModal && <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="bulk-tags-title"><section className="modal bulk-tags-modal"><button className="close" type="button" onClick={() => setTagModal(false)} aria-label="Закрыть">×</button><h2 id="bulk-tags-title">Изменить теги</h2><p>Выбрано расходов: <b>{selected.size}</b></p><div className="bulk-tag-actions">{(Object.keys(actionLabels) as TagAction[]).map((action) => <button type="button" className={tagAction === action ? 'active-button' : ''} key={action} onClick={() => setTagAction(action)}>{actionLabels[action]}</button>)}</div><fieldset><legend>Теги</legend><div className="tag-selector">{tags.map((tag) => <label key={tag.id}><input type="checkbox" checked={selectedTags.has(tag.id)} onChange={() => setSelectedTags((current) => { const next = new Set(current); next.has(tag.id) ? next.delete(tag.id) : next.add(tag.id); return next; })} />{tag.name}</label>)}</div>{!tags.length && <p>В справочнике нет тегов.</p>}</fieldset><div className="bulk-tags-summary"><span>Операция: <b>{actionLabels[tagAction]}</b></span><span>Выбранные теги: <b>{tags.filter((tag) => selectedTags.has(tag.id)).map((tag) => tag.name).join(', ') || 'не выбраны'}</b></span></div><div className="modal-actions"><button type="button" onClick={() => setTagModal(false)}>Отмена</button><button className="primary" type="button" disabled={!selectedTags.size || applyingTags} onClick={() => void applyTags()}>{applyingTags ? 'Применяем…' : 'Применить'}</button></div></section></div>}

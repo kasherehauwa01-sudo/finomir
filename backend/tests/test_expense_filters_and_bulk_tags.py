@@ -28,6 +28,23 @@ def test_expenses_without_filters_keep_default_pagination():
     sql = str(db.query.compile(dialect=postgresql.dialect()))
     assert items == [] and total == 73
     assert "LIMIT" in sql and "OFFSET" in sql
+    assert "expenses.expense_year DESC" in sql and "expenses.expense_month DESC" in sql
+
+
+@pytest.mark.parametrize(("sort_by", "fragment"), [
+    ("partner", "lower(partners.name)"),
+    ("counterparty", "lower(counterparties.full_name)"),
+    ("tags", "min(lower(tags.name))"),
+    ("invoice_total", "sum(invoices.amount)"),
+    ("paid_total", "sum(payments.amount)"),
+    ("remaining_total", "sum(invoices.amount)"),
+])
+def test_expense_sorting_is_applied_before_pagination(sort_by, fragment):
+    db = RepositoryDb()
+    ExpenseRepository(db).list(1, 25, sort_by=sort_by, sort_order="asc")
+    sql = str(db.query.compile(dialect=postgresql.dialect()))
+    assert fragment in sql and " ASC" in sql
+    assert sql.index("ORDER BY") < sql.index("LIMIT")
 
 
 def test_select_all_expense_ids_uses_filters_without_pagination():
