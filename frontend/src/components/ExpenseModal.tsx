@@ -6,6 +6,9 @@ type Props = { close: () => void; onSaved?: () => void };
 type Allocation = { store_id: string; amount: string };
 
 const today = new Date().toISOString().slice(0, 10);
+export function invoiceAmountForSubmission(invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) {
+  return invoicePayment ? invoiceAmount : paymentAmount;
+}
 
 export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [mode, setMode] = useState<'choice' | 'ocr' | 'manual'>('choice');
@@ -32,6 +35,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [invoicePayment, setInvoicePayment] = useState(true);
+  const invoiceFieldsBeforeCash = useRef({ number: '', date: today, amount: '' });
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const cameraInput = useRef<HTMLInputElement>(null);
 
@@ -56,6 +61,16 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const availableCounterparties = counterparties.filter(
     (item) => !partnerId || item.partner_id === partnerId,
   );
+
+  function toggleInvoicePayment() {
+    if (invoicePayment) {
+      invoiceFieldsBeforeCash.current = { number: invoiceNumber, date: invoiceDate, amount: invoiceAmount };
+      setInvoicePayment(false); setInvoiceNumber('Наличные'); setInvoiceDate(today); setInvoiceAmount('');
+    } else {
+      const previous = invoiceFieldsBeforeCash.current;
+      setInvoicePayment(true); setInvoiceNumber(previous.number); setInvoiceDate(previous.date); setInvoiceAmount(previous.amount);
+    }
+  }
 
   async function upload(file: File) {
     setMessage('Распознаём документ…');
@@ -147,12 +162,13 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      if (invoiceAmount) {
+      const amountForInvoice = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
+      if (amountForInvoice) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
           body: JSON.stringify({
             invoice_number: invoiceNumber || 'Без номера', invoice_date: invoiceDate,
-            amount: invoiceAmount,
+            amount: amountForInvoice,
           }),
         });
         if (paymentAmount) {
@@ -210,8 +226,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
-          <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
+          <label className="payment-toggle"><input type="checkbox" role="switch" checked={invoicePayment} onChange={toggleInvoicePayment} /><span aria-hidden="true" />Оплата по счету</label>
+          <div className="row"><label>Номер счета<input readOnly={!invoicePayment} value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{invoicePayment && ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input readOnly={!invoicePayment} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{invoicePayment && ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+          {invoicePayment ? <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div> : <label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
