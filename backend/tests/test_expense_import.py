@@ -8,7 +8,7 @@ import pytest
 from openpyxl import Workbook
 
 from app.models import Allocation, Invoice, Payment, Store
-from app.services.expense_import import _date, _decimal, _find_header, _invoice_number, _period, import_expenses_excel
+from app.services.expense_import import _date, _decimal, _find_header, _invoice_date, _invoice_number, _period, import_expenses_excel
 
 
 class Result:
@@ -38,6 +38,23 @@ def test_import_value_formats():
     assert _invoice_number("15") == "15"
     assert _invoice_number(None) == "б/н"
     assert _invoice_number("  ") == "б/н"
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("21.06.16.", date(2016, 6, 21)),
+    ("29,06.2016", date(2016, 6, 29)),
+    ("24.10.216", date(2016, 10, 24)),
+    ("12,07,17", date(2017, 7, 12)),
+    ("03.09.19", date(2019, 9, 3)),
+    ("10.07,2024", date(2024, 7, 10)),
+])
+def test_invoice_date_formats_are_normalized(source, expected):
+    assert _date(source) == expected
+
+
+@pytest.mark.parametrize("source", [None, "", "дата неизвестна", "32.18.2024"])
+def test_invalid_invoice_date_uses_expense_period(source):
+    assert _invoice_date(source, 2, 2026) == date(2026, 2, 1)
 
 
 def test_header_row_can_contain_newlines_and_typo_from_template():

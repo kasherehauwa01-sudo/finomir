@@ -18,6 +18,13 @@ export function buildExpenseQuery(filters: ExpenseFilters, page: number): string
   return params.toString();
 }
 
+export function buildExpenseIdsQuery(filters: ExpenseFilters): string {
+  const params = new URLSearchParams(buildExpenseQuery(filters, 1));
+  params.delete('page');
+  params.delete('page_size');
+  return params.toString();
+}
+
 export function useExpenses(filters: ExpenseFilters, page: number, revision = 0) {
   const [data, setData] = useState<Page<Expense>>();
   const [error, setError] = useState('');

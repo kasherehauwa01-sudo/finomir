@@ -62,12 +62,33 @@ def _date(value: object) -> date:
         return value.date()
     if isinstance(value, date):
         return value
-    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d"):
+    text = _text(value)
+    numeric = re.fullmatch(r"(\d{1,2})[.,/-](\d{1,2})[.,/-](\d{2,4})\.?", text)
+    if numeric:
+        day, month, year_text = numeric.groups()
+        if len(year_text) == 2:
+            year = 2000 + int(year_text)
+        elif len(year_text) == 3 and year_text.startswith("2"):
+            year = 2000 + int(year_text[1:])
+        else:
+            year = int(year_text)
         try:
-            return datetime.strptime(_text(value), fmt).date()
+            return date(year, int(month), int(day))
         except ValueError:
             pass
-    raise ValueError(f"некорректная дата счета «{_text(value)}»")
+    for fmt in ("%Y-%m-%d",):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    raise ValueError(f"некорректная дата счета «{text}»")
+
+
+def _invoice_date(value: object, month: int, year: int) -> date:
+    try:
+        return _date(value)
+    except ValueError:
+        return date(year, month, 1)
 
 
 MONTHS = {
@@ -163,7 +184,7 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
             invoice_number_value = values[columns["invoice_number"]] if columns["invoice_number"] < len(values) else None
             invoice_number = _invoice_number(invoice_number_value)
             invoice_date_value = values[columns["invoice_date"]] if columns["invoice_date"] < len(values) else None
-            invoice_date = _date(invoice_date_value) if _text(invoice_date_value) else date(year, month, 1)
+            invoice_date = _invoice_date(invoice_date_value, month, year)
 
             with db.begin_nested():
                 partner = db.scalar(select(Partner).where(Partner.deleted_at.is_(None), func.lower(Partner.name) == partner_name.lower()))

@@ -23,9 +23,8 @@ class ExpenseFilters:
 
 class ExpenseRepository:
  def __init__(self,db:Session): self.db=db
- def list(self,page:int,page_size:int,filters:ExpenseFilters|None=None):
-  filters=filters or ExpenseFilters()
-  q=select(Expense).join(Partner).join(Counterparty).where(Expense.deleted_at.is_(None)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags),selectinload(Expense.allocations).selectinload(Allocation.store))
+ def _filtered_query(self,filters:ExpenseFilters):
+  q=select(Expense).join(Partner).join(Counterparty).where(Expense.deleted_at.is_(None))
   invoice_total=select(func.coalesce(func.sum(Invoice.amount),0)).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
   paid_total=select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==Expense.id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None)).correlate(Expense).scalar_subquery()
   if filters.search: q=q.where(or_(Expense.service_name.ilike(f"%{filters.search}%"),Expense.contract_number.ilike(f"%{filters.search}%"),Partner.name.ilike(f"%{filters.search}%"),Counterparty.full_name.ilike(f"%{filters.search}%"),Counterparty.inn.ilike(f"%{filters.search}%"),Expense.invoices.any(Invoice.invoice_number.ilike(f"%{filters.search}%"))))
@@ -44,5 +43,12 @@ class ExpenseRepository:
    elif status!="all":
     has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
     q=q.where(has_document if status=="yes" else ~has_document)
+  return q
+ def list(self,page:int,page_size:int,filters:ExpenseFilters|None=None):
+  q=self._filtered_query(filters or ExpenseFilters())
   total=self.db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0
+  q=q.options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags),selectinload(Expense.allocations).selectinload(Allocation.store))
   return self.db.scalars(q.order_by(Expense.updated_at.desc()).offset((page-1)*page_size).limit(page_size)).unique().all(),total
+ def ids(self,filters:ExpenseFilters|None=None):
+  q=self._filtered_query(filters or ExpenseFilters()).with_only_columns(Expense.id).order_by(None)
+  return self.db.scalars(q).all()

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModal';
-import { type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
+import { buildExpenseIdsQuery, type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 
@@ -43,6 +43,7 @@ export function Expenses() {
   const [tagAction, setTagAction] = useState<TagAction>('add');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [applyingTags, setApplyingTags] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -62,19 +63,27 @@ export function Expenses() {
       }).catch((reason: Error) => setActionError(`Не удалось загрузить справочники. ${reason.message}`));
   }, []);
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = selectedVisible > 0 && !allVisibleSelected; }, [selectedVisible, allVisibleSelected]);
-  useEffect(() => { const available = new Set(visibleIds); setSelected((current) => new Set([...current].filter((id) => available.has(id)))); }, [visibleIds]);
 
   function updateFilter<K extends keyof ExpenseFilters>(key: K, value: ExpenseFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
-    setPage(1); setNotice('');
+    setPage(1); setSelected(new Set()); setNotice('');
   }
   function updatePartners(partnerIds: string[]) {
     setFilters((current) => ({ ...current, partner_ids: partnerIds, counterparty_ids: current.counterparty_ids.filter((id) => counterparties.some((item) => item.id === id && (!partnerIds.length || Boolean(item.partner_id && partnerIds.includes(item.partner_id))))) }));
-    setPage(1); setNotice('');
+    setPage(1); setSelected(new Set()); setNotice('');
   }
-  function resetFilters() { setFilters(emptyFilters); setPage(1); }
+  function resetFilters() { setFilters(emptyFilters); setPage(1); setSelected(new Set()); }
   function toggleAll() {
     setSelected((current) => { const next = new Set(current); visibleIds.forEach((id) => allVisibleSelected ? next.delete(id) : next.add(id)); return next; });
+  }
+  async function toggleAllFiltered() {
+    if (data?.total && selected.size === data.total) { setSelected(new Set()); return; }
+    setSelectingAll(true); setActionError('');
+    try {
+      const result = await api<{ ids: string[] }>(`/expenses/ids?${buildExpenseIdsQuery(filters)}`);
+      setSelected(new Set(result.ids ?? []));
+    } catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Не удалось выбрать все расходы'); }
+    finally { setSelectingAll(false); }
   }
   async function deleteSelected() {
     const ids = [...selected];
@@ -112,6 +121,7 @@ export function Expenses() {
       <input type="search" placeholder="Поиск по партнеру, ИНН, счету…" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} />
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
+      <button type="button" disabled={selectingAll || !data?.total} onClick={() => void toggleAllFiltered()}>{selectingAll ? 'Выбираем…' : data?.total && selected.size === data.total ? 'Снять выделение' : 'Выбрать все'}</button>
     </div>
     {filtersOpen && <section className="toolbar-panel expense-filters">
       <label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={filters.period} onChange={(event) => updateFilter('period', event.target.value)} /></label>

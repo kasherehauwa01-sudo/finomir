@@ -30,6 +30,15 @@ def test_expenses_without_filters_keep_default_pagination():
     assert "LIMIT" in sql and "OFFSET" in sql
 
 
+def test_select_all_expense_ids_uses_filters_without_pagination():
+    db = RepositoryDb()
+    ids = ExpenseRepository(db).ids(ExpenseFilters(search="реклама", tag_ids=(uuid.uuid4(),)))
+    sql = str(db.query.compile(dialect=postgresql.dialect()))
+    assert ids == []
+    assert "expense_tags" in sql
+    assert "LIMIT" not in sql and "OFFSET" not in sql
+
+
 def test_all_expense_filters_are_applied_before_pagination():
     db = RepositoryDb()
     filters = ExpenseFilters(
