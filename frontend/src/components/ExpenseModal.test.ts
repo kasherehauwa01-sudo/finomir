@@ -19,6 +19,7 @@ describe('ручное добавление расхода', () => {
   it('разрешает выбрать ровно один тег и применяет тег партнера',()=>{
     expect(singleTagSelection([], 'tag-1')).toEqual(['tag-1']);
     expect(singleTagSelection(['tag-1'], 'tag-2')).toEqual(['tag-2']);
+    expect(singleTagSelection(['tag-1'], 'tag-1')).toEqual(['tag-1']);
     expect(partnerDefaultTagIds([{id:'p1',name:'Партнер',tag_id:'tag-2'}],'p1')).toEqual(['tag-2']);
   });
 

@@ -10,7 +10,7 @@ export function invoiceAmountForSubmission(invoicePayment: boolean, invoiceAmoun
   return invoicePayment ? invoiceAmount : paymentAmount;
 }
 export const duplicateInvoiceQuery = (invoiceNumber:string,amount:string) => new URLSearchParams({invoice_number:invoiceNumber.trim(),amount}).toString();
-export const singleTagSelection = (current:string[],tagId:string) => current.includes(tagId)?[]:[tagId];
+export const singleTagSelection = (_current:string[],tagId:string) => [tagId];
 export const partnerDefaultTagIds = (partners:Partner[],partnerId:string) => { const tagId=partners.find(item=>item.id===partnerId)?.tag_id; return tagId?[tagId]:[]; };
 export const filterExpensePartners = (items:Partner[],search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
 export const filterExpenseCounterparties = (items:Counterparty[],partnerId:string,search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>(!partnerId||item.partner_id===partnerId)&&(!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)||item.id===selectedId)); };
@@ -256,7 +256,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
         <fieldset><legend>Тег *</legend>
-          <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
+          <div className="store-tags" role="radiogroup" aria-label="Тег расхода">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" role="radio" aria-checked={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
           {!tags.length && <small>В справочнике пока нет тегов.</small>}
           {!!tags.length && !tagIds.length && <small>Выберите один тег — без него расход сохранить нельзя.</small>}
         </fieldset>

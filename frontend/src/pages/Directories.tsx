@@ -10,9 +10,6 @@ type Item={id:string;name?:string;full_name?:string;partner_id?:string;tag_id?:s
 export const filterLinkedCounterparties = (items:Counterparty[], search:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)); };
 export const filterPartners = (items:Partner[], search:string,selectedId?:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
 
-export const filterLinkedCounterparties = (items:Counterparty[], search:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)); };
-export const filterPartners = (items:Partner[], search:string,selectedId?:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
-
 export function Directories(){
  const {directory}=useParams<{directory?:string}>(); const selected=directory&&directory in directories?directory as DirectoryKey:undefined;
  const [items,setItems]=useState<Item[]>([]); const [partners,setPartners]=useState<Partner[]>([]); const [counterparties,setCounterparties]=useState<Counterparty[]>([]); const [tags,setTags]=useState<Tag[]>([]); const [editing,setEditing]=useState<Item|null>(); const [error,setError]=useState(''); const [search,setSearch]=useState('');
