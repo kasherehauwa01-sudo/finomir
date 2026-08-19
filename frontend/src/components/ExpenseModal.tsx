@@ -75,6 +75,16 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     }
   }
 
+  function toggleInvoicePayment() {
+    if (invoicePayment) {
+      invoiceFieldsBeforeCash.current = { number: invoiceNumber, date: invoiceDate, amount: invoiceAmount };
+      setInvoicePayment(false); setInvoiceNumber('Наличные'); setInvoiceDate(today); setInvoiceAmount('');
+    } else {
+      const previous = invoiceFieldsBeforeCash.current;
+      setInvoicePayment(true); setInvoiceNumber(previous.number); setInvoiceDate(previous.date); setInvoiceAmount(previous.amount);
+    }
+  }
+
   async function upload(file: File) {
     setMessage('Распознаём документ…');
     setBusy(true);
