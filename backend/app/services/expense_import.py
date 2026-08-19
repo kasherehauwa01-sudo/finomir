@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Allocation, AuditLog, Counterparty, Expense, Invoice, Partner, Payment, Store, Tag
-from app.services.finance import distribute_evenly
 
 
 def _header(value: object) -> str:
@@ -183,8 +182,7 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
                 invoice = Invoice(expense_id=expense.id, invoice_number=invoice_number, invoice_date=invoice_date, amount=amount, vat_amount=None, comment=None)
                 db.add(invoice); db.flush()
                 db.add(Payment(invoice_id=invoice.id, payment_date=invoice_date, amount=amount, comment="Импортировано из Excel"))
-                distributed = distribute_evenly(amount, len(allocations))
-                for (store, _), allocation_amount in zip(allocations, distributed):
+                for store, allocation_amount in allocations:
                     db.add(Allocation(expense_id=expense.id, store_id=store.id, amount=allocation_amount))
                 db.add(AuditLog(entity_type="expense", entity_id=expense.id, action="imported", metadata_={"source": "xlsx", "row": row_number}, created_at=datetime.now(timezone.utc)))
             loaded += 1

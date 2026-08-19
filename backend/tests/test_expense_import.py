@@ -58,10 +58,10 @@ def test_invalid_period_has_readable_error():
         _period("когда-нибудь")
 
 
-def test_excel_import_creates_payment_equal_to_invoice_and_splits_it_between_stores():
+def test_excel_import_creates_payment_and_preserves_store_amounts():
     workbook = Workbook(); sheet = workbook.active
     sheet.append(["Наименование контрагента", "Суть рекламного сообщения", "Вид рекламы", "месяц/год оказания услуг", "№ счета", "Дата счета", "Сумма счета с НДС", "Магазин 1", "Магазин 2"])
-    sheet.append(["Партнер", "Реклама", "Интернет", "Январь 2026", "15", "10.01.2026", 100, 1, 1])
+    sheet.append(["Партнер", "Реклама", "Интернет", "Январь 2026", "15", "10.01.2026", 100, "70,25", "15,50"])
     content = BytesIO(); workbook.save(content)
     stores = [Store(id=uuid.uuid4(), name=f"Магазин {number}", address=None, comment=None, is_active=True, is_system=False) for number in (1, 2)]
     db = ImportDb(stores)
@@ -72,7 +72,7 @@ def test_excel_import_creates_payment_equal_to_invoice_and_splits_it_between_sto
     allocations = [item.amount for item in db.added if isinstance(item, Allocation)]
     assert result == {"loaded": 1, "errors_count": 0, "errors": []}
     assert payment.amount == Decimal("100")
-    assert allocations == [Decimal("50"), Decimal("50")]
+    assert allocations == [Decimal("70.25"), Decimal("15.50")]
 
 
 def test_excel_import_marks_nal_invoice_as_cash():
