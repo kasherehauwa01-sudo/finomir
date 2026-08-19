@@ -9,6 +9,8 @@ const today = new Date().toISOString().slice(0, 10);
 export function invoiceAmountForSubmission(invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) {
   return invoicePayment ? invoiceAmount : paymentAmount;
 }
+export const filterExpensePartners = (items:Partner[],search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
+export const filterExpenseCounterparties = (items:Counterparty[],partnerId:string,search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>(!partnerId||item.partner_id===partnerId)&&(!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)||item.id===selectedId)); };
 
 export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [mode, setMode] = useState<'choice' | 'ocr' | 'manual'>('choice');
@@ -21,6 +23,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
+  const [partnerSearch, setPartnerSearch] = useState('');
+  const [counterpartySearch, setCounterpartySearch] = useState('');
   const [serviceName, setServiceName] = useState('');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
@@ -58,9 +62,18 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
-  const availableCounterparties = counterparties.filter(
-    (item) => !partnerId || item.partner_id === partnerId,
-  );
+  const visiblePartners = filterExpensePartners(partners,partnerSearch,partnerId);
+  const availableCounterparties = filterExpenseCounterparties(counterparties,partnerId,counterpartySearch,counterpartyId);
+
+  function toggleInvoicePayment() {
+    if (invoicePayment) {
+      invoiceFieldsBeforeCash.current = { number: invoiceNumber, date: invoiceDate, amount: invoiceAmount };
+      setInvoicePayment(false); setInvoiceNumber('Наличные'); setInvoiceDate(today); setInvoiceAmount('');
+    } else {
+      const previous = invoiceFieldsBeforeCash.current;
+      setInvoicePayment(true); setInvoiceNumber(previous.number); setInvoiceDate(previous.date); setInvoiceAmount(previous.amount);
+    }
+  }
 
   function toggleInvoicePayment() {
     if (invoicePayment) {
@@ -219,9 +232,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
-        <label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); }}><option value="">Выберите партнера</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <div className="entity-selector"><label>Поиск партнера<input type="search" placeholder="Введите название" value={partnerSearch} onChange={(event)=>setPartnerSearch(event.target.value)}/></label><label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); setCounterpartySearch(''); }}><option value="">Выберите партнера</option>{visiblePartners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
-        <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
+        <div className="entity-selector"><label>Поиск контрагента<input type="search" placeholder="Название или ИНН" value={counterpartySearch} onChange={(event)=>setCounterpartySearch(event.target.value)}/></label><label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label></div>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
