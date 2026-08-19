@@ -2,7 +2,7 @@ declare const __BASE_PATH__: string;
 
 const base = __BASE_PATH__.replace(/\/$/, '');
 
-function errorMessage(status: number, body: unknown): string {
+function errorMessage(status: number, body: unknown, path: string): string {
   if (typeof body === 'object' && body !== null && 'detail' in body) {
     const detail = (body as { detail?: unknown }).detail;
     if (typeof detail === 'string') return detail;
@@ -12,7 +12,12 @@ function errorMessage(status: number, body: unknown): string {
     }
   }
   if (status === 413) return 'Фотография слишком большая. Максимальный размер файла — 20 МБ.';
-  if ([502, 503, 504].includes(status)) return 'Сервис распознавания временно недоступен. Попробуйте еще раз через несколько минут.';
+  if ([502, 503, 504].includes(status)) {
+    const isRecognitionRequest = path.startsWith('/ocr') || path.endsWith('/recognize');
+    return isRecognitionRequest
+      ? 'Сервис распознавания временно недоступен. Попробуйте еще раз через несколько минут.'
+      : 'Сервер временно недоступен. Попробуйте еще раз через несколько минут.';
+  }
   return `Не удалось выполнить операцию (ошибка ${status})`;
 }
 
@@ -29,7 +34,7 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (text) {
     try { body = JSON.parse(text); } catch { body = null; }
   }
-  if (!response.ok) throw new Error(errorMessage(response.status, body));
+  if (!response.ok) throw new Error(errorMessage(response.status, body, path));
   return response.status === 204 ? undefined as T : body as T;
 }
 
