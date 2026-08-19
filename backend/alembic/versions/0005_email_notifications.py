@@ -1,0 +1,12 @@
+"""SMTP settings, notification scenarios and delivery history."""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+revision="0005"; down_revision="0004"
+def upgrade():
+ op.create_table("smtp_settings",sa.Column("id",UUID(as_uuid=True),primary_key=True),sa.Column("host",sa.String(255),nullable=False),sa.Column("port",sa.Integer,nullable=False),sa.Column("security",sa.String(20),nullable=False),sa.Column("username",sa.String(255)),sa.Column("password_encrypted",sa.Text),sa.Column("from_email",sa.String(255),nullable=False),sa.Column("from_name",sa.String(255)),sa.Column("status",sa.String(30),nullable=False),sa.Column("last_error",sa.Text),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False),sa.Column("updated_at",sa.DateTime(timezone=True),nullable=False))
+ op.create_table("notification_scenarios",sa.Column("id",UUID(as_uuid=True),primary_key=True),sa.Column("code",sa.String(50),nullable=False,unique=True),sa.Column("name",sa.String(255),nullable=False),sa.Column("enabled",sa.Boolean,nullable=False),sa.Column("subject_template",sa.String(500),nullable=False),sa.Column("body_template",sa.Text,nullable=False),sa.Column("recipients",JSONB,nullable=False),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False),sa.Column("updated_at",sa.DateTime(timezone=True),nullable=False))
+ op.create_table("notification_logs",sa.Column("id",UUID(as_uuid=True),primary_key=True),sa.Column("notification_type",sa.String(30),nullable=False),sa.Column("status",sa.String(20),nullable=False),sa.Column("recipients",JSONB,nullable=False),sa.Column("subject",sa.String(500),nullable=False),sa.Column("body",sa.Text,nullable=False),sa.Column("error",sa.Text),sa.Column("expense_id",UUID(as_uuid=True),sa.ForeignKey("expenses.id")),sa.Column("document_id",UUID(as_uuid=True),sa.ForeignKey("documents.id")),sa.Column("invoice_id",UUID(as_uuid=True),sa.ForeignKey("invoices.id")),sa.Column("original_filename",sa.String(500)),sa.Column("attachment_present",sa.Boolean,nullable=False),sa.Column("attachment_size",sa.Integer),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False),sa.UniqueConstraint("notification_type","document_id",name="uq_notification_document_event"))
+ for column in ("notification_type","status","expense_id","document_id","invoice_id","created_at"): op.create_index(f"ix_notification_logs_{column}","notification_logs",[column])
+def downgrade(): op.drop_table("notification_logs"); op.drop_table("notification_scenarios"); op.drop_table("smtp_settings")
