@@ -99,7 +99,7 @@ export function Expenses() {
     const value = item[column];
     if (column === 'stores') return <div className="store-list">{(item.stores ?? []).map((store) => <span key={store.name}>{store.name}: {money(store.amount)}</span>)}</div>;
     if (column === 'tags') return <div className="store-list">{(item.tags ?? []).map((tag) => <span key={tag}>{tag}</span>)}</div>;
-    if (column === 'has_invoice_document') return item.is_cash ? <span className="cash-badge">₽ Наличные</span> : <span className={value ? 'document-ok' : 'document-missing'}>{value ? '✓' : '×'}</span>;
+    if (column === 'has_invoice_document') return item.is_cash ? <span className="cash-icon" role="img" aria-label="Наличные" title="Наличные">💰</span> : <span className={value ? 'document-ok' : 'document-missing'}>{value ? '✓' : '×'}</span>;
     if (column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'}>{value ? '✓' : '×'}</span>;
     return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : typeof value === 'string' ? value : '';
   }
