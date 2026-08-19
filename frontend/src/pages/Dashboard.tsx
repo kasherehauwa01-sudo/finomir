@@ -6,13 +6,17 @@ import { money } from '../utils/format';
 
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год', custom: 'Произвольный' };
+const emptySelectionId = '00000000-0000-0000-0000-000000000000';
+export const toggleTagGroup = (selected:string[],options:{id:string}[]) => options.length > 0 && options.every(item=>selected.includes(item.id)) ? [] : options.map(item=>item.id);
+export const tagGroupQueryIds = (selected:string[],options:{id:string}[]) => options.length > 0 && selected.length === 0 ? [emptySelectionId] : selected;
 
 function MultiFilter({ label, selected, options, update }: { label: string; selected: string[]; options: { id: string; name: string }[]; update: (ids: string[]) => void }) {
   return <details className="checkbox-filter"><summary>{label}: {selected.length ? selected.length : 'Все'}</summary><div>{options.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={() => update(selected.includes(item.id) ? selected.filter((id) => id !== item.id) : [...selected, item.id])} />{item.name}</label>)}</div></details>;
 }
 
 function TagFilter({ label, selected, options, update }: { label: string; selected: string[]; options: { id: string; name: string }[]; update: (ids: string[]) => void }) {
-  return <section><b>{label}</b><div>{options.map((item)=><button type="button" key={item.id} className={selected.includes(item.id)?'active':''} onClick={()=>update(selected.includes(item.id)?selected.filter((id)=>id!==item.id):[...selected,item.id])}>{item.name}</button>)}</div></section>;
+  const allSelected=options.length>0&&options.every(item=>selected.includes(item.id));
+  return <section><div className="tag-filter-title"><b>{label}</b><button type="button" className="tag-toggle-all" onClick={()=>update(toggleTagGroup(selected,options))}>{allSelected?'Снять все':'Выделить все'}</button></div><div>{options.map((item)=><button type="button" key={item.id} className={selected.includes(item.id)?'active':''} onClick={()=>update(selected.includes(item.id)?selected.filter((id)=>id!==item.id):[...selected,item.id])}>{item.name}</button>)}</div></section>;
 }
 
 export function Dashboard() {
@@ -26,18 +30,18 @@ export function Dashboard() {
 
   useEffect(() => {
     Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores'), api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties')])
-      .then(([tagItems, storeItems, partnerItems, counterpartyItems]) => { const safeTags=tagItems??[]; setTags(safeTags); setTagIds(safeTags.map((item)=>item.id)); setStores(storeItems??[]); setPartners(partnerItems??[]); setCounterparties(counterpartyItems??[]); })
+      .then(([tagItems, storeItems, partnerItems, counterpartyItems]) => { const safeTags=tagItems??[]; const safeStores=storeItems??[]; setTags(safeTags); setTagIds(safeTags.map((item)=>item.id)); setStores(safeStores); setStoreIds(safeStores.map((item)=>item.id)); setPartners(partnerItems??[]); setCounterparties(counterpartyItems??[]); })
       .catch((reason: Error) => setError(reason.message));
   }, []);
   useEffect(() => {
     const query = new URLSearchParams({ period });
     if (period === 'custom') { query.set('date_from', dateFrom); query.set('date_to', dateTo); }
-    tagIds.forEach((id) => query.append('tag_ids', id)); storeIds.forEach((id) => query.append('store_ids', id)); partnerIds.forEach((id) => query.append('partner_ids', id)); counterpartyIds.forEach((id) => query.append('counterparty_ids', id));
+    tagGroupQueryIds(tagIds,tags).forEach((id) => query.append('tag_ids', id)); tagGroupQueryIds(storeIds,stores).forEach((id) => query.append('store_ids', id)); partnerIds.forEach((id) => query.append('partner_ids', id)); counterpartyIds.forEach((id) => query.append('counterparty_ids', id));
     if (paymentStatus !== 'all') query.set('payment_status', paymentStatus); if (amountFrom) query.set('amount_from', amountFrom); if (amountTo) query.set('amount_to', amountTo); if (invoiceDocument !== 'all') query.set('invoice_document', invoiceDocument); if (closingDocument !== 'all') query.set('closing_document', closingDocument);
     setError(''); setSummary(undefined); api<DashboardSummary>(`/dashboard?${query}`).then(setSummary).catch((reason: Error) => setError(reason.message));
   }, [period,dateFrom,dateTo,revision,tagIds,storeIds,partnerIds,counterpartyIds,paymentStatus,amountFrom,amountTo,invoiceDocument,closingDocument]);
   function updatePartners(ids:string[]){ setPartnerIds(ids); setCounterpartyIds((current)=>current.filter((id)=>counterparties.some((item)=>item.id===id&&(!ids.length||Boolean(item.partner_id&&ids.includes(item.partner_id)))))); }
-  function reset(){ setTagIds(tags.map((item)=>item.id)); setStoreIds([]); setPartnerIds([]); setCounterpartyIds([]); setPaymentStatus('all'); setAmountFrom(''); setAmountTo(''); setInvoiceDocument('all'); setClosingDocument('all'); }
+  function reset(){ setTagIds(tags.map((item)=>item.id)); setStoreIds(stores.map((item)=>item.id)); setPartnerIds([]); setCounterpartyIds([]); setPaymentStatus('all'); setAmountFrom(''); setAmountTo(''); setInvoiceDocument('all'); setClosingDocument('all'); }
   const maxTagAmount=Math.max(...(summary?.tag_totals.map((item)=>Number(item.amount))??[]),0);
 
   return <>
