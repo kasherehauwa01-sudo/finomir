@@ -149,3 +149,14 @@ docker run --rm -v finomir_uploads:/data -v /srv/backups/finomir/TIMESTAMP:/back
 docker compose up -d
 ```
 Регулярно проверяйте восстановление на отдельном окружении и копируйте backups на другой носитель.
+# SMTP-уведомления
+
+Перед сохранением SMTP-пароля задайте постоянный ключ шифрования в `.env`:
+
+```bash
+docker compose run --rm backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Скопируйте результат в `SMTP_ENCRYPTION_KEY`. Не меняйте и не удаляйте ключ после
+сохранения SMTP-настроек: без него расшифровать пароль будет невозможно. Ключ не
+хранится в базе данных и не возвращается через API.
