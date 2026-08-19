@@ -36,6 +36,23 @@ def test_real_apres_invoice():
     assert result.counterparty_name == 'ООО "АПРЕС"'
 
 
+@pytest.mark.parametrize(("text", "service"), [
+    ("Товары (работы, услуги)\n1 Размещение рекламного баннера 1 усл. 7 140,00 7 140,00\nИтого: 7 140,00", "Размещение рекламного баннера"),
+    ("Наименование товара, работ, услуг\nПечать листовок А3\n1\nшт.\nВсего к оплате: 500,00", "Печать листовок А3"),
+    ("Товары (работы, услуги)\n1 Дизайн макета 1 усл. 500 500\n2 Печать баннера 1 усл. 1000 1000\nИтого", "Дизайн макета; Печать баннера"),
+])
+def test_service_name_is_extracted_from_invoice_table(text, service):
+    result = RussianInvoiceParser().parse(text)
+    assert result.service_name == service
+    assert result.confidence["service_name"] > .8
+
+
+def test_service_name_is_not_invented_without_items_table():
+    result = RussianInvoiceParser().parse("Счет № 10 от 01.01.2026\nВсего к оплате 100,00")
+    assert result.service_name is None
+    assert result.confidence["service_name"] == 0
+
+
 @pytest.mark.parametrize(("header", "number", "invoice_date"), [
     ("Счёт на оплату № 253 от 27 июля 2026 г.", "253", "2026-07-27"),
     ("Счет № 253 от 27.07.2026", "253", "2026-07-27"),
