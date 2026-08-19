@@ -9,7 +9,7 @@ from fastapi import APIRouter,Depends,File,HTTPException,Query,UploadFile
 from fastapi.responses import FileResponse,StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel,Field
-from sqlalchemy import func,select,text
+from sqlalchemy import and_,func,select,text
 from sqlalchemy.orm import Session,selectinload
 from app.config import get_settings
 from app.database import get_db
@@ -40,7 +40,7 @@ def _redistribute_payments(expense_id:UUID,db:Session):
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year|custom)$"),date_from:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),date_to:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year|custom)$"),date_from:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),date_to:str|None=Query(None,pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
  if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
  q=select(Expense).where(Expense.deleted_at.is_(None)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
@@ -60,7 +60,8 @@ def dashboard(period:str=Query("month",pattern="^(month|quarter|year|custom)$"),
  if payment_status=="paid": q=q.where(invoice_sum-paid_sum<=0)
  elif payment_status=="unpaid": q=q.where(invoice_sum-paid_sum>0)
  for document_type,status in (("invoice",invoice_document),("closing",closing_document)):
-  if status!="all":
+  if document_type=="invoice" and status=="cash": q=q.where(Expense.invoices.any(and_(Invoice.invoice_number.ilike("Наличные"),Invoice.deleted_at.is_(None))))
+  elif status!="all":
    has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
    q=q.where(has_document if status=="yes" else ~has_document)
  items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
@@ -163,7 +164,7 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  for expense in db.scalars(select(Expense).where(Expense.tags.any(Tag.id==item_id))).all(): expense.tags.remove(x)
  db.delete(x); db.commit()
 @router.get("/expenses")
-def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
+def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
  if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
  month,year=(map(int,period.split(".")) if period else (None,None))
  filters=ExpenseFilters(search=search,expense_month=month,expense_year=year,payment_status=payment_status,partner_ids=tuple(partner_ids),counterparty_ids=tuple(counterparty_ids),store_ids=tuple(store_ids),tag_ids=tuple(tag_ids),amount_from=amount_from,amount_to=amount_to,invoice_document=invoice_document,closing_document=closing_document)
@@ -171,7 +172,7 @@ def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  for x in items:
-  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[{"name":a.store.name,"amount":a.amount} for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
+  active_invoices=[i for i in x.invoices if not i.deleted_at]; it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in active_invoices]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[{"name":a.store.name,"amount":a.amount} for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"is_cash":any(i.invoice_number.casefold()=="наличные" for i in active_invoices),"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):

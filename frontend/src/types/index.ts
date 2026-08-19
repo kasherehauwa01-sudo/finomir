@@ -1,4 +1,4 @@
-export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: { name: string; amount: string }[]; tags: string[]; has_invoice_document: boolean; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
+export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: { name: string; amount: string }[]; tags: string[]; has_invoice_document: boolean; has_closing_document: boolean; is_cash: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type DashboardSummary = { invoice_total: string; paid_total: string; remaining_total: string; expense_count: number; period: 'month' | 'quarter' | 'year' | 'custom'; tag_totals: { tag: string; amount: string; expense_count: number }[] };
 export type Partner = { id: string; name: string; comment?: string | null };

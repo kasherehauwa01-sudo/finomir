@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func,or_,select
+from sqlalchemy import and_,func,or_,select
 from sqlalchemy.orm import Session,selectinload
 from app.models import Allocation,Counterparty,Document,Expense,Invoice,Partner,Payment,Tag
 
@@ -40,7 +40,8 @@ class ExpenseRepository:
   if filters.amount_from is not None: q=q.where(invoice_total>=filters.amount_from)
   if filters.amount_to is not None: q=q.where(invoice_total<=filters.amount_to)
   for document_type,status in (("invoice",filters.invoice_document),("closing",filters.closing_document)):
-   if status!="all":
+   if document_type=="invoice" and status=="cash": q=q.where(Expense.invoices.any(and_(Invoice.invoice_number.ilike("Наличные"),Invoice.deleted_at.is_(None))))
+   elif status!="all":
     has_document=Expense.id.in_(select(Document.expense_id).where(Document.document_type==document_type,Document.deleted_at.is_(None),Document.expense_id.is_not(None)))
     q=q.where(has_document if status=="yes" else ~has_document)
   total=self.db.scalar(select(func.count()).select_from(q.order_by(None).subquery())) or 0

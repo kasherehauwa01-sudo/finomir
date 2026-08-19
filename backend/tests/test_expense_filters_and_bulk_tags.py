@@ -58,6 +58,7 @@ def test_all_expense_filters_are_applied_before_pagination():
     ("amount_from", Decimal("10"), "sum(invoices.amount)"),
     ("amount_to", Decimal("50"), "sum(invoices.amount)"),
     ("invoice_document", "yes", "documents.document_type"),
+    ("invoice_document", "cash", "invoices.invoice_number"),
     ("closing_document", "no", "documents.document_type"),
 ])
 def test_individual_expense_filter(field, value, fragment):
