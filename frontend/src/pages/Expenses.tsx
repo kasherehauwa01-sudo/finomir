@@ -6,13 +6,15 @@ import { type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 
-const columns = [
+export const expenseColumns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
-  ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
+  ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_number', 'Номер счета'], ['invoice_date', 'Дата счета'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
-type Column = typeof columns[number][0];
+const columns = expenseColumns;
+type Column = typeof expenseColumns[number][0];
 type TagAction = 'add' | 'remove' | 'replace';
+export const defaultExpenseColumns = expenseColumns.map(([key]) => key).filter((key) => key !== 'invoice_number' && key !== 'invoice_date');
 
 const emptyFilters: ExpenseFilters = {
   search: '', period: '', payment_status: 'all', partner_ids: [], counterparty_ids: [], store_ids: [], tag_ids: [],
@@ -31,7 +33,7 @@ export function Expenses() {
   const [modal, setModal] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [visible, setVisible] = useState<Column[]>(columns.map(([key]) => key));
+  const [visible, setVisible] = useState<Column[]>(defaultExpenseColumns);
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
