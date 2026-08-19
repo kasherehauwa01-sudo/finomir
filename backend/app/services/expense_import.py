@@ -34,6 +34,12 @@ def _text(value: object) -> str:
     return str(value).strip()
 
 
+def _invoice_number(value: object) -> str:
+    """Normalize the legacy cash marker used in expense spreadsheets."""
+    number = _text(value)
+    return "Наличные" if number.casefold() == "нал" else number
+
+
 def _decimal(value: object) -> Decimal:
     if isinstance(value, (Decimal, int, float)):
         result = Decimal(str(value))
@@ -153,7 +159,7 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
             partner_name = _text(required("partner", "Наименование контрагента"))
             service = _text(required("service", "Суть рекламного сообщения"))
             tag_name = _text(values[columns["tag"]]) or None
-            invoice_number = _text(required("invoice_number", "№ счета"))
+            invoice_number = _invoice_number(required("invoice_number", "№ счета"))
             invoice_date = _date(required("invoice_date", "Дата счета"))
 
             with db.begin_nested():
