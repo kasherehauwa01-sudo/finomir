@@ -3,7 +3,7 @@ import { buildExpenseIdsQuery, buildExpenseQuery, type ExpenseFilters } from './
 
 const filters: ExpenseFilters = {
   search: 'реклама', period: '08.2026', payment_status: 'unpaid', partner_ids: ['partner-1', 'partner-2'], counterparty_ids: ['counterparty'],
-  store_ids: ['store'], tag_ids: ['tag-1', 'tag-2'], amount_from: '10000', amount_to: '50000', invoice_document: 'yes', closing_document: 'no',
+  store_ids: ['store'], tag_ids: ['tag-1', 'tag-2'], amount_from: '10000', amount_to: '50000', invoice_date_from: '2026-01-01', invoice_date_to: '2026-12-31', invoice_document: 'yes', closing_document: 'no',
 };
 
 describe('expense filters query', () => {
@@ -13,6 +13,8 @@ describe('expense filters query', () => {
     expect(params.getAll('partner_ids')).toEqual(filters.partner_ids);
     expect(params.getAll('tag_ids')).toEqual(filters.tag_ids);
     expect(params.get('amount_from')).toBe('10000');
+    expect(params.get('invoice_date_from')).toBe('2026-01-01');
+    expect(params.get('invoice_date_to')).toBe('2026-12-31');
     expect(params.get('sort_by')).toBe('period');
     expect(params.get('sort_order')).toBe('desc');
   });

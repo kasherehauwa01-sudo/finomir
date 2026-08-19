@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -61,7 +62,7 @@ def test_all_expense_filters_are_applied_before_pagination():
     filters = ExpenseFilters(
         search="реклама", expense_month=8, expense_year=2026, payment_status="unpaid",
         partner_ids=(uuid.uuid4(), uuid.uuid4()), counterparty_ids=(uuid.uuid4(),), store_ids=(uuid.uuid4(),), tag_ids=(uuid.uuid4(),),
-        amount_from=Decimal("10000"), amount_to=Decimal("50000"), invoice_document="yes", closing_document="no",
+        amount_from=Decimal("10000"), amount_to=Decimal("50000"), invoice_date_from=date(2026,1,1), invoice_date_to=date(2026,12,31), invoice_document="yes", closing_document="no",
     )
 
     items, total = ExpenseRepository(db).list(2, 25, filters)
@@ -73,6 +74,7 @@ def test_all_expense_filters_are_applied_before_pagination():
     assert sql.count("sum(invoices.amount)") >= 2
     assert "documents.document_type" in sql and "NOT IN" in sql
     assert "expenses.expense_month" in sql and "expenses.expense_year" in sql
+    assert "invoices.invoice_date" in sql
     assert "LIMIT" in sql and "OFFSET" in sql
 
 
@@ -83,6 +85,8 @@ def test_all_expense_filters_are_applied_before_pagination():
     ("tag_ids", (uuid.uuid4(),), "expense_tags"),
     ("amount_from", Decimal("10"), "sum(invoices.amount)"),
     ("amount_to", Decimal("50"), "sum(invoices.amount)"),
+    ("invoice_date_from", date(2026, 1, 1), "invoices.invoice_date"),
+    ("invoice_date_to", date(2026, 12, 31), "invoices.invoice_date"),
     ("invoice_document", "yes", "documents.document_type"),
     ("invoice_document", "cash", "invoices.invoice_number"),
     ("closing_document", "no", "documents.document_type"),

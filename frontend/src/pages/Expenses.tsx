@@ -21,7 +21,7 @@ export const globalSelectionLabel = (total:number) => `Выбрать все: ${
 
 const emptyFilters: ExpenseFilters = {
   search: '', period: '', payment_status: 'all', partner_ids: [], counterparty_ids: [], store_ids: [], tag_ids: [],
-  amount_from: '', amount_to: '', invoice_document: 'all', closing_document: 'all',
+  amount_from: '', amount_to: '', invoice_date_from: '', invoice_date_to: '', invoice_document: 'all', closing_document: 'all',
 };
 const actionLabels: Record<TagAction, string> = { add: 'Добавить теги', remove: 'Удалить теги', replace: 'Заменить теги' };
 
@@ -139,8 +139,8 @@ export function Expenses() {
       <CheckboxFilter label="Контрагент" values={filters.counterparty_ids} options={availableCounterparties.map((item) => ({ id: item.id, name: item.full_name }))} onChange={(values) => updateFilter('counterparty_ids', values)} />
       <CheckboxFilter label="Магазин" values={filters.store_ids} options={stores} onChange={(values) => updateFilter('store_ids', values)} />
       <CheckboxFilter label="Тег" values={filters.tag_ids} options={tags} onChange={(values) => updateFilter('tag_ids', values)} />
-      <label>Сумма счетов от<input type="number" min="0" step="0.01" value={filters.amount_from} onChange={(event) => updateFilter('amount_from', event.target.value)} /></label>
-      <label>Сумма счетов до<input type="number" min="0" step="0.01" value={filters.amount_to} onChange={(event) => updateFilter('amount_to', event.target.value)} /></label>
+      <fieldset className="filter-range"><legend>Сумма счетов</legend><div><label><span>От</span><input aria-label="Сумма счетов от" type="number" min="0" step="0.01" value={filters.amount_from} onChange={(event) => updateFilter('amount_from', event.target.value)} /></label><label><span>До</span><input aria-label="Сумма счетов до" type="number" min="0" step="0.01" value={filters.amount_to} onChange={(event) => updateFilter('amount_to', event.target.value)} /></label></div></fieldset>
+      <fieldset className="filter-range"><legend>Дата счета</legend><div><label><span>От</span><input aria-label="Дата счета от" type="date" value={filters.invoice_date_from} onChange={(event) => updateFilter('invoice_date_from', event.target.value)} /></label><label><span>До</span><input aria-label="Дата счета до" type="date" value={filters.invoice_date_to} onChange={(event) => updateFilter('invoice_date_to', event.target.value)} /></label></div></fieldset>
       <label>Счет<select value={filters.invoice_document} onChange={(event) => updateFilter('invoice_document', event.target.value)}><option value="all">Все</option><option value="yes">Есть</option><option value="no">Нет</option><option value="cash">Наличные</option></select></label>
       <label>Акт<select value={filters.closing_document} onChange={(event) => updateFilter('closing_document', event.target.value)}><option value="all">Все</option><option value="yes">Есть</option><option value="no">Нет</option></select></label>
       <button type="button" className="link reset-filters" onClick={resetFilters}>Сбросить фильтры</button>

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -18,6 +19,8 @@ class ExpenseFilters:
  tag_ids:tuple[UUID,...]=()
  amount_from:Decimal|None=None
  amount_to:Decimal|None=None
+ invoice_date_from:date|None=None
+ invoice_date_to:date|None=None
  invoice_document:str="all"
  closing_document:str="all"
 
@@ -38,6 +41,11 @@ class ExpenseRepository:
   if filters.tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(filters.tag_ids)))
   if filters.amount_from is not None: q=q.where(invoice_total>=filters.amount_from)
   if filters.amount_to is not None: q=q.where(invoice_total<=filters.amount_to)
+  if filters.invoice_date_from is not None or filters.invoice_date_to is not None:
+   invoice_date_conditions=[Invoice.deleted_at.is_(None)]
+   if filters.invoice_date_from is not None: invoice_date_conditions.append(Invoice.invoice_date>=filters.invoice_date_from)
+   if filters.invoice_date_to is not None: invoice_date_conditions.append(Invoice.invoice_date<=filters.invoice_date_to)
+   q=q.where(Expense.invoices.any(and_(*invoice_date_conditions)))
   for document_type,status in (("invoice",filters.invoice_document),("closing",filters.closing_document)):
    if document_type=="invoice" and status=="cash": q=q.where(Expense.invoices.any(and_(Invoice.invoice_number.ilike("Наличные"),Invoice.deleted_at.is_(None))))
    elif status!="all":

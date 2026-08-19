@@ -4,7 +4,7 @@ import type { Expense, Page } from '../types';
 
 export type ExpenseFilters = {
   search: string; period: string; payment_status: string; partner_ids: string[]; counterparty_ids: string[];
-  store_ids: string[]; tag_ids: string[]; amount_from: string; amount_to: string;
+  store_ids: string[]; tag_ids: string[]; amount_from: string; amount_to: string; invoice_date_from: string; invoice_date_to: string;
   invoice_document: string; closing_document: string;
 };
 export type ExpenseSort = { by: 'period' | 'partner' | 'counterparty' | 'tags' | 'invoice_total' | 'paid_total' | 'remaining_total'; order: 'asc' | 'desc' };
