@@ -47,15 +47,6 @@ def test_expense_sorting_is_applied_before_pagination(sort_by, fragment):
     assert sql.index("ORDER BY") < sql.index("LIMIT")
 
 
-def test_select_all_expense_ids_uses_filters_without_pagination():
-    db = RepositoryDb()
-    ids = ExpenseRepository(db).ids(ExpenseFilters(search="реклама", tag_ids=(uuid.uuid4(),)))
-    sql = str(db.query.compile(dialect=postgresql.dialect()))
-    assert ids == []
-    assert "expense_tags" in sql
-    assert "LIMIT" not in sql and "OFFSET" not in sql
-
-
 def test_all_expense_filters_are_applied_before_pagination():
     db = RepositoryDb()
     filters = ExpenseFilters(

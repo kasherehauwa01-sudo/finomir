@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildExpenseIdsQuery, buildExpenseQuery, type ExpenseFilters } from './useExpenses';
+import { buildExpenseQuery, type ExpenseFilters } from './useExpenses';
 
 const filters: ExpenseFilters = {
   search: 'реклама', period: '08.2026', payment_status: 'unpaid', partner_ids: ['partner-1', 'partner-2'], counterparty_ids: ['counterparty'],
@@ -29,13 +29,5 @@ describe('expense filters query', () => {
     expect(params.has('period')).toBe(false);
     expect(params.has('payment_status')).toBe(false);
     expect(params.has('invoice_document')).toBe(false);
-  });
-
-  it('строит запрос выбора всех строк по фильтрам без пагинации', () => {
-    const params = new URLSearchParams(buildExpenseIdsQuery(filters));
-    expect(params.has('page')).toBe(false);
-    expect(params.has('page_size')).toBe(false);
-    expect(params.getAll('tag_ids')).toEqual(filters.tag_ids);
-    expect(params.get('payment_status')).toBe('unpaid');
   });
 });

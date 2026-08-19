@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Allocation, AuditLog, Counterparty, Expense, Invoice, Partner, Payment, Store, Tag
+from app.services.finance import distribute_evenly
 
 
 def _header(value: object) -> str:
@@ -34,11 +35,9 @@ def _text(value: object) -> str:
 
 
 def _invoice_number(value: object) -> str:
-    """Normalize cash and missing invoice numbers used in spreadsheets."""
+    """Normalize the legacy cash marker used in expense spreadsheets."""
     number = _text(value)
-    if number.casefold() == "нал":
-        return "Наличные"
-    return number or "б/н"
+    return "Наличные" if number.casefold() == "нал" else number
 
 
 def _decimal(value: object) -> Decimal:
@@ -62,33 +61,12 @@ def _date(value: object) -> date:
         return value.date()
     if isinstance(value, date):
         return value
-    text = _text(value)
-    numeric = re.fullmatch(r"(\d{1,2})[.,/-](\d{1,2})[.,/-](\d{2,4})\.?", text)
-    if numeric:
-        day, month, year_text = numeric.groups()
-        if len(year_text) == 2:
-            year = 2000 + int(year_text)
-        elif len(year_text) == 3 and year_text.startswith("2"):
-            year = 2000 + int(year_text[1:])
-        else:
-            year = int(year_text)
+    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d"):
         try:
-            return date(year, int(month), int(day))
+            return datetime.strptime(_text(value), fmt).date()
         except ValueError:
             pass
-    for fmt in ("%Y-%m-%d",):
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            pass
-    raise ValueError(f"некорректная дата счета «{text}»")
-
-
-def _invoice_date(value: object, month: int, year: int) -> date:
-    try:
-        return _date(value)
-    except ValueError:
-        return date(year, month, 1)
+    raise ValueError(f"некорректная дата счета «{_text(value)}»")
 
 
 MONTHS = {
@@ -181,10 +159,8 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
             partner_name = _text(required("partner", "Наименование контрагента"))
             service = _text(required("service", "Суть рекламного сообщения"))
             tag_name = _text(values[columns["tag"]]) or None
-            invoice_number_value = values[columns["invoice_number"]] if columns["invoice_number"] < len(values) else None
-            invoice_number = _invoice_number(invoice_number_value)
-            invoice_date_value = values[columns["invoice_date"]] if columns["invoice_date"] < len(values) else None
-            invoice_date = _invoice_date(invoice_date_value, month, year)
+            invoice_number = _invoice_number(required("invoice_number", "№ счета"))
+            invoice_date = _date(required("invoice_date", "Дата счета"))
 
             with db.begin_nested():
                 partner = db.scalar(select(Partner).where(Partner.deleted_at.is_(None), func.lower(Partner.name) == partner_name.lower()))
@@ -203,7 +179,8 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
                 invoice = Invoice(expense_id=expense.id, invoice_number=invoice_number, invoice_date=invoice_date, amount=amount, vat_amount=None, comment=None)
                 db.add(invoice); db.flush()
                 db.add(Payment(invoice_id=invoice.id, payment_date=invoice_date, amount=amount, comment="Импортировано из Excel"))
-                for store, allocation_amount in allocations:
+                distributed = distribute_evenly(amount, len(allocations))
+                for (store, _), allocation_amount in zip(allocations, distributed):
                     db.add(Allocation(expense_id=expense.id, store_id=store.id, amount=allocation_amount))
                 db.add(AuditLog(entity_type="expense", entity_id=expense.id, action="imported", metadata_={"source": "xlsx", "row": row_number}, created_at=datetime.now(timezone.utc)))
             loaded += 1

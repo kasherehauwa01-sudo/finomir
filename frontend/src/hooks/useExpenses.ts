@@ -20,16 +20,7 @@ export function buildExpenseQuery(filters: ExpenseFilters, page: number, sort: E
   return params.toString();
 }
 
-export function buildExpenseIdsQuery(filters: ExpenseFilters): string {
-  const params = new URLSearchParams(buildExpenseQuery(filters, 1));
-  params.delete('page');
-  params.delete('page_size');
-  params.delete('sort_by');
-  params.delete('sort_order');
-  return params.toString();
-}
-
-export function useExpenses(filters: ExpenseFilters, page: number, revision = 0, sort: ExpenseSort = { by: 'period', order: 'desc' }) {
+export function useExpenses(filters: ExpenseFilters, page: number, revision = 0) {
   const [data, setData] = useState<Page<Expense>>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);

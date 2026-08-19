@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModal';
-import { buildExpenseIdsQuery, type ExpenseFilters, type ExpenseSort, useExpenses } from '../hooks/useExpenses';
+import { type ExpenseFilters, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 
@@ -11,11 +11,8 @@ export const expenseColumns = [
   ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_number', 'Номер счета'], ['invoice_date', 'Дата счета'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
-const columns = expenseColumns;
-type Column = typeof expenseColumns[number][0];
+type Column = typeof columns[number][0];
 type TagAction = 'add' | 'remove' | 'replace';
-export const defaultExpenseColumns = expenseColumns.map(([key]) => key).filter((key) => key !== 'invoice_number' && key !== 'invoice_date');
-const sortableColumns = new Set<Column>(['period', 'partner', 'counterparty', 'tags', 'invoice_total', 'paid_total', 'remaining_total']);
 
 const emptyFilters: ExpenseFilters = {
   search: '', period: '', payment_status: 'all', partner_ids: [], counterparty_ids: [], store_ids: [], tag_ids: [],
@@ -34,7 +31,7 @@ export function Expenses() {
   const [modal, setModal] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [visible, setVisible] = useState<Column[]>(defaultExpenseColumns);
+  const [visible, setVisible] = useState<Column[]>(columns.map(([key]) => key));
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -44,8 +41,6 @@ export function Expenses() {
   const [tagAction, setTagAction] = useState<TagAction>('add');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [applyingTags, setApplyingTags] = useState(false);
-  const [selectingAll, setSelectingAll] = useState(false);
-  const [sort, setSort] = useState<ExpenseSort>({ by: 'period', order: 'desc' });
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -65,32 +60,19 @@ export function Expenses() {
       }).catch((reason: Error) => setActionError(`Не удалось загрузить справочники. ${reason.message}`));
   }, []);
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = selectedVisible > 0 && !allVisibleSelected; }, [selectedVisible, allVisibleSelected]);
+  useEffect(() => { const available = new Set(visibleIds); setSelected((current) => new Set([...current].filter((id) => available.has(id)))); }, [visibleIds]);
 
   function updateFilter<K extends keyof ExpenseFilters>(key: K, value: ExpenseFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }));
-    setPage(1); setSelected(new Set()); setNotice('');
+    setPage(1); setNotice('');
   }
   function updatePartners(partnerIds: string[]) {
     setFilters((current) => ({ ...current, partner_ids: partnerIds, counterparty_ids: current.counterparty_ids.filter((id) => counterparties.some((item) => item.id === id && (!partnerIds.length || Boolean(item.partner_id && partnerIds.includes(item.partner_id))))) }));
-    setPage(1); setSelected(new Set()); setNotice('');
+    setPage(1); setNotice('');
   }
-  function resetFilters() { setFilters(emptyFilters); setPage(1); setSelected(new Set()); }
+  function resetFilters() { setFilters(emptyFilters); setPage(1); }
   function toggleAll() {
     setSelected((current) => { const next = new Set(current); visibleIds.forEach((id) => allVisibleSelected ? next.delete(id) : next.add(id)); return next; });
-  }
-  function changeSort(column: Column) {
-    if (!sortableColumns.has(column)) return;
-    setSort((current) => ({ by: column as ExpenseSort['by'], order: current.by === column && current.order === 'desc' ? 'asc' : 'desc' }));
-    setPage(1);
-  }
-  async function toggleAllFiltered() {
-    if (data?.total && selected.size === data.total) { setSelected(new Set()); return; }
-    setSelectingAll(true); setActionError('');
-    try {
-      const result = await api<{ ids: string[] }>(`/expenses/ids?${buildExpenseIdsQuery(filters)}`);
-      setSelected(new Set(result.ids ?? []));
-    } catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Не удалось выбрать все расходы'); }
-    finally { setSelectingAll(false); }
   }
   async function deleteSelected() {
     const ids = [...selected];
