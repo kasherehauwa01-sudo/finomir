@@ -36,6 +36,8 @@ def test_import_value_formats():
     assert _invoice_number("нал") == "Наличные"
     assert _invoice_number(" НАЛ ") == "Наличные"
     assert _invoice_number("15") == "15"
+    assert _invoice_number(None) == "б/н"
+    assert _invoice_number("  ") == "б/н"
 
 
 def test_header_row_can_contain_newlines_and_typo_from_template():
@@ -85,3 +87,17 @@ def test_excel_import_marks_nal_invoice_as_cash():
     invoice = next(item for item in db.added if isinstance(item, Invoice))
     assert result == {"loaded": 1, "errors_count": 0, "errors": []}
     assert invoice.invoice_number == "Наличные"
+
+
+def test_excel_import_uses_default_when_invoice_number_is_missing():
+    workbook = Workbook(); sheet = workbook.active
+    sheet.append(["Наименование контрагента", "Суть рекламного сообщения", "Вид рекламы", "месяц/год оказания услуг", "№ счета", "Дата счета", "Сумма счета с НДС"])
+    sheet.append(["Партнер", "Реклама", "Интернет", "Январь 2026", None, "10.01.2026", 100])
+    content = BytesIO(); workbook.save(content)
+    db = ImportDb([])
+
+    result = import_expenses_excel(content.getvalue(), "expenses.xlsx", db)
+
+    invoice = next(item for item in db.added if isinstance(item, Invoice))
+    assert result == {"loaded": 1, "errors_count": 0, "errors": []}
+    assert invoice.invoice_number == "б/н"
