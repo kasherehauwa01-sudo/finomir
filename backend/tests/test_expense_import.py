@@ -101,3 +101,19 @@ def test_excel_import_uses_default_when_invoice_number_is_missing():
     invoice = next(item for item in db.added if isinstance(item, Invoice))
     assert result == {"loaded": 1, "errors_count": 0, "errors": []}
     assert invoice.invoice_number == "б/н"
+
+
+def test_excel_import_uses_period_start_when_invoice_date_is_missing():
+    workbook = Workbook(); sheet = workbook.active
+    sheet.append(["Наименование контрагента", "Суть рекламного сообщения", "Вид рекламы", "месяц/год оказания услуг", "№ счета", "Дата счета", "Сумма счета с НДС"])
+    sheet.append(["Партнер", "Реклама", "Интернет", "Февраль 2026", "15", None, 100])
+    content = BytesIO(); workbook.save(content)
+    db = ImportDb([])
+
+    result = import_expenses_excel(content.getvalue(), "expenses.xlsx", db)
+
+    invoice = next(item for item in db.added if isinstance(item, Invoice))
+    payment = next(item for item in db.added if isinstance(item, Payment))
+    assert result == {"loaded": 1, "errors_count": 0, "errors": []}
+    assert invoice.invoice_date == date(2026, 2, 1)
+    assert payment.payment_date == date(2026, 2, 1)

@@ -163,7 +163,8 @@ def import_expenses_excel(content: bytes, filename: str, db: Session) -> dict:
             tag_name = _text(values[columns["tag"]]) or None
             invoice_number_value = values[columns["invoice_number"]] if columns["invoice_number"] < len(values) else None
             invoice_number = _invoice_number(invoice_number_value)
-            invoice_date = _date(required("invoice_date", "Дата счета"))
+            invoice_date_value = values[columns["invoice_date"]] if columns["invoice_date"] < len(values) else None
+            invoice_date = _date(invoice_date_value) if _text(invoice_date_value) else date(year, month, 1)
 
             with db.begin_nested():
                 partner = db.scalar(select(Partner).where(Partner.deleted_at.is_(None), func.lower(Partner.name) == partner_name.lower()))
