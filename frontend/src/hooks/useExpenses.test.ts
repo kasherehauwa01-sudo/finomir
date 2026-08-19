@@ -13,6 +13,14 @@ describe('expense filters query', () => {
     expect(params.getAll('partner_ids')).toEqual(filters.partner_ids);
     expect(params.getAll('tag_ids')).toEqual(filters.tag_ids);
     expect(params.get('amount_from')).toBe('10000');
+    expect(params.get('sort_by')).toBe('period');
+    expect(params.get('sort_order')).toBe('desc');
+  });
+
+  it('передает выбранную сортировку', () => {
+    const params = new URLSearchParams(buildExpenseQuery(filters, 1, { by: 'invoice_total', order: 'asc' }));
+    expect(params.get('sort_by')).toBe('invoice_total');
+    expect(params.get('sort_order')).toBe('asc');
   });
 
   it('не отправляет пустые, all и незавершенный период', () => {
