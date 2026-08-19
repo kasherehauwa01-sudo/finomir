@@ -7,6 +7,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from .base import OCRProvider, OCRResult
+from .parser import extract_service_name
 
 
 def _clean(value: str) -> str:
@@ -46,10 +47,12 @@ def parse_invoice_text(text: str) -> OCRResult:
         recipient = _clean(supplier.group(1)) if supplier else None
     # В платежных реквизитах ИНН получателя расположен до подписи поля.
     inn = re.search(r"\bинн\s*(\d{10}|\d{12})", normalized, re.I)
+    service_name = extract_service_name(normalized)
     return OCRResult(counterparty_name=recipient, inn=inn.group(1) if inn else None,
         invoice_number=invoice_number, invoice_date=invoice_date, invoice_amount=amount,
+        service_name=service_name,
         service_period={"month": month, "year": int(match.group(4)) if match else None},
-        confidence={"invoice_number": .9 if invoice_number else 0, "invoice_amount": .95 if amount else 0, "counterparty_name": .8 if recipient else 0})
+        confidence={"invoice_number": .9 if invoice_number else 0, "invoice_amount": .95 if amount else 0, "counterparty_name": .8 if recipient else 0, "service_name": .86 if service_name else 0})
 
 
 class TesseractOCRProvider(OCRProvider):
