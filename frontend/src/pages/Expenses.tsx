@@ -130,6 +130,7 @@ export function Expenses() {
       <input type="search" placeholder="Поиск по партнеру, ИНН, счету…" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} />
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
+      <button type="button" disabled={selectingAll || !data?.total} onClick={() => void toggleAllFiltered()}>{selectingAll ? 'Выбираем…' : data?.total && selected.size === data.total ? 'Снять выделение' : 'Выбрать все'}</button>
     </div>
     {filtersOpen && <section className="toolbar-panel expense-filters">
       <label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={filters.period} onChange={(event) => updateFilter('period', event.target.value)} /></label>

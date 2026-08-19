@@ -29,6 +29,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
+  const [partnerSearch, setPartnerSearch] = useState('');
+  const [counterpartySearch, setCounterpartySearch] = useState('');
   const [serviceName, setServiceName] = useState('');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
