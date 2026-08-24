@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModalStable';
-import { useExpenses } from '../hooks/useExpenses';
+import { buildExpenseIdsQuery, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
 
@@ -16,6 +16,7 @@ const columns = [
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
 type Column = typeof columns[number][0];
+export const selectAllRowsLabel = (total: number) => `Выделить все строки (${total})`;
 
 export function Expenses() {
   const navigate = useNavigate();
@@ -37,6 +38,7 @@ export function Expenses() {
   const [bulkError, setBulkError] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -92,6 +94,16 @@ export function Expenses() {
     setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
   }
 
+  async function selectAllRows() {
+    setSelectingAll(true); setBulkError('');
+    try {
+      const result = await api<{ ids: string[] }>(`/expenses/ids?${buildExpenseIdsQuery(filters)}`);
+      setSelectedIds(result.ids ?? []);
+    } catch (reason) {
+      setBulkError(reason instanceof Error ? reason.message : 'Не удалось выделить все расходы');
+    } finally { setSelectingAll(false); }
+  }
+
   async function deleteSelected() {
     const ids = [...selectedIds];
     if (!ids.length || !window.confirm(`Удалить выбранные расходы (${ids.length})? Это действие нельзя отменить.`)) return;
@@ -126,11 +138,11 @@ export function Expenses() {
   return <>
     <div className="page-head"><div><h1>Расходы</h1><p>Единый реестр расходов отдела</p></div><button className="primary" onClick={() => setModal(true)}>+ Добавить расход</button></div>
     <div className="toolbar">
-      <input placeholder="Поиск по партнеру, ИНН, счету…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+      <div className="expense-search"><input type="search" placeholder="Поиск по партнеру, ИНН, счету…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setSelectedIds([]); }} />{search && <button type="button" aria-label="Очистить поиск" title="Очистить поиск" onClick={() => { setSearch(''); setPage(1); setSelectedIds([]); }}>×</button>}</div>
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
     </div>
-    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button><button type="button" className="primary" disabled={deleteBusy} onClick={() => setBulkOpen(true)}>Изменить выбранные</button><button type="button" className="bulk-delete" disabled={deleteBusy} onClick={() => void deleteSelected()}>{deleteBusy ? 'Удаляем…' : 'Удалить выбранные'}</button></div>}
+    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button>{allVisibleSelected && data && selectedIds.length < data.total && <button type="button" className="select-all-rows" disabled={selectingAll} onClick={() => void selectAllRows()}>{selectingAll ? 'Выделяем…' : selectAllRowsLabel(data.total)}</button>}<button type="button" className="primary" disabled={deleteBusy || selectingAll} onClick={() => setBulkOpen(true)}>Изменить выбранные</button><button type="button" className="bulk-delete" disabled={deleteBusy || selectingAll} onClick={() => void deleteSelected()}>{deleteBusy ? 'Удаляем…' : 'Удалить выбранные'}</button></div>}
     {bulkError && !bulkOpen && <div className="notice error" role="alert">{bulkError}</div>}
     {filtersOpen && <section className="toolbar-panel"><label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={period} onChange={(event) => setPeriod(event.target.value)} /></label><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label><button type="button" className="link" onClick={() => { setPeriod(''); setPaymentStatus('all'); }}>Сбросить фильтры</button></section>}
     {columnsOpen && <section className="toolbar-panel columns-panel">{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</section>}
