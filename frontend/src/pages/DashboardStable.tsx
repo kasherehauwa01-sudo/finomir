@@ -53,6 +53,11 @@ export function Dashboard() {
   function toggle(selected: string[], id: string, update: (value: string[]) => void) {
     update(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
   }
+  function togglePartner(id: string) {
+    const next = partnerIds.includes(id) ? partnerIds.filter((item) => item !== id) : [...partnerIds, id];
+    setPartnerIds(next);
+    setCounterpartyIds((current) => current.filter((counterpartyId) => counterparties.some((item) => item.id === counterpartyId && (!next.length || Boolean(item.partner_id && next.includes(item.partner_id))))));
+  }
 
   const maxTagAmount = Math.max(...(summary?.tag_totals.map((item) => Number(item.amount)) ?? []), 0);
   const hasFilters = tagIds.length > 0 || storeIds.length > 0 || partnerIds.length > 0 || counterpartyIds.length > 0 || paymentStatus !== 'all';
