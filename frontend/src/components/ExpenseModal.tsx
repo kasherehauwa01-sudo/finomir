@@ -6,6 +6,20 @@ type Props = { close: () => void; onSaved?: () => void };
 type Allocation = { store_id: string; amount: string };
 
 const today = new Date().toISOString().slice(0, 10);
+export function invoiceAmountForSubmission(invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) {
+  return invoicePayment ? invoiceAmount : paymentAmount;
+}
+export const duplicateInvoiceQuery = (invoiceNumber:string,amount:string) => new URLSearchParams({invoice_number:invoiceNumber.trim(),amount}).toString();
+export const singleTagSelection = (_current:string[],tagId:string) => [tagId];
+export const partnerDefaultTagIds = (partners:Partner[],partnerId:string) => { const tagId=partners.find(item=>item.id===partnerId)?.tag_id; return tagId?[tagId]:[]; };
+export const filterExpensePartners = (items:Partner[],search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId); };
+export const filterExpenseCounterparties = (items:Counterparty[],partnerId:string,search:string,selectedId:string) => { const term=search.trim().toLowerCase(); return items.filter(item=>(!partnerId||item.partner_id===partnerId)&&(!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term)||item.id===selectedId)); };
+
+function SearchSelect({label,value,placeholder,searchPlaceholder,options,onChange}:{label:string;value:string;placeholder:string;searchPlaceholder:string;options:{id:string;label:string;search:string}[];onChange:(id:string)=>void}) {
+  const [search,setSearch]=useState(''); const details=useRef<HTMLDetailsElement>(null); const searchInput=useRef<HTMLInputElement>(null); const term=search.trim().toLowerCase();
+  const visible=options.filter(item=>!term||item.search.toLowerCase().includes(term)||item.id===value); const selected=options.find(item=>item.id===value);
+  return <div className="search-select-label"><span>{label}</span><details className="search-select" ref={details} onToggle={(event)=>{if(event.currentTarget.open)setTimeout(()=>searchInput.current?.focus());else setSearch('');}}><summary>{selected?.label||placeholder}</summary><div><input ref={searchInput} type="search" aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={search} onChange={event=>setSearch(event.target.value)}/><div className="search-select-options"><button type="button" className={!value?'selected':''} onClick={()=>{onChange('');if(details.current)details.current.open=false;}}>{placeholder}</button>{visible.map(item=><button type="button" className={item.id===value?'selected':''} key={item.id} onClick={()=>{onChange(item.id);if(details.current)details.current.open=false;}}>{item.label}</button>)}{!visible.length&&<small>Ничего не найдено</small>}</div></div></details></div>;
+}
 
 export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [mode, setMode] = useState<'choice' | 'ocr' | 'manual'>('choice');
@@ -18,6 +32,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
+  const [partnerSearch, setPartnerSearch] = useState('');
+  const [counterpartySearch, setCounterpartySearch] = useState('');
   const [serviceName, setServiceName] = useState('');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
@@ -54,9 +70,17 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
-  const availableCounterparties = counterparties.filter(
-    (item) => !partnerId || item.partner_id === partnerId,
-  );
+  const availableCounterparties = counterparties.filter(item=>!partnerId||item.partner_id===partnerId);
+
+  function toggleInvoicePayment() {
+    if (invoicePayment) {
+      invoiceFieldsBeforeCash.current = { number: invoiceNumber, date: invoiceDate, amount: invoiceAmount };
+      setInvoicePayment(false); setInvoiceNumber('Наличные'); setInvoiceDate(today); setInvoiceAmount('');
+    } else {
+      const previous = invoiceFieldsBeforeCash.current;
+      setInvoicePayment(true); setInvoiceNumber(previous.number); setInvoiceDate(previous.date); setInvoiceAmount(previous.amount);
+    }
+  }
 
   async function upload(file: File) {
     setMessage('Распознаём документ…');
@@ -79,6 +103,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       if (counterparty?.partner_id) {
         setCounterpartyId(counterparty.id);
         setPartnerId(counterparty.partner_id);
+        setTagIds(partnerDefaultTagIds(partners,counterparty.partner_id));
       }
       setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
       setOcrReviewed(true);
@@ -102,6 +127,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setPartners((current) => [...current, item]);
     setPartnerId(item.id);
     setCounterpartyId('');
+    setTagIds(partnerDefaultTagIds([item],item.id));
   }
 
   async function createCounterparty() {
@@ -121,6 +147,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!partnerId) { setMessage('Выберите партнера.'); return; }
+    if (!counterpartyId && (!ocrReviewed || !recipient.trim())) { setMessage('Выберите контрагента.'); return; }
+    if (tagIds.length !== 1) { setMessage('Выберите один обязательный тег.'); return; }
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
@@ -154,7 +183,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           method: 'POST',
           body: JSON.stringify({
             invoice_number: invoiceNumber || 'Без номера', invoice_date: invoiceDate,
-            amount: invoiceAmount,
+            amount: amountForInvoice,
           }),
         });
         if (hasPayment && paymentAmount) {
@@ -163,6 +192,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           });
         }
       }
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       onSaved();
       close();
     } catch (error) {
@@ -208,7 +238,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
         <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
-        <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
+        <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" />{ocrReviewed && ocrConfidence.service_name < .7 && <small>⚠ Проверьте наименование товара, работы или услуги</small>}</label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
           <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
