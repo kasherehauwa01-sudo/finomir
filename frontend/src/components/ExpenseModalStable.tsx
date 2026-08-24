@@ -12,6 +12,7 @@ type Allocation = { store_id: string; amount: string };
 const today = new Date().toISOString().slice(0, 10);
 
 export const singleExpenseTag = (_current: string[], tagId: string) => [tagId];
+export const invoiceAmountForSubmission = (invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) => invoicePayment ? invoiceAmount : paymentAmount;
 
 type SearchOption = { id: string; label: string; search: string };
 export const filterSearchOptions = (options: SearchOption[], search: string, selectedId: string) => {
@@ -81,7 +82,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [hasPayment, setHasPayment] = useState(false);
+  const [invoicePayment, setInvoicePayment] = useState(true);
+  const [paymentDate, setPaymentDate] = useState(today);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const cameraInput = useRef<HTMLInputElement>(null);
 
@@ -206,17 +208,19 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         }),
       });
       if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
-      if (invoiceAmount) {
+      const submittedInvoiceAmount = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
+      if (submittedInvoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
           body: JSON.stringify({
-            invoice_number: invoiceNumber || 'Без номера', invoice_date: invoiceDate,
-            amount: invoiceAmount,
+            invoice_number: invoicePayment ? invoiceNumber || 'Без номера' : 'Наличные',
+            invoice_date: invoicePayment ? invoiceDate : paymentDate,
+            amount: submittedInvoiceAmount,
           }),
         });
-        if (hasPayment && paymentAmount) {
+        if (paymentAmount) {
           await api(`/invoices/${invoice.id}/payments`, {
-            method: 'POST', body: JSON.stringify({ payment_date: today, amount: paymentAmount }),
+            method: 'POST', body: JSON.stringify({ payment_date: paymentDate, amount: paymentAmount }),
           });
         }
       }
@@ -268,10 +272,11 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
-          <label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
-          <label className="switch-field"><input type="checkbox" checked={hasPayment} onChange={(event) => { const checked = event.target.checked; setHasPayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
-          {hasPayment && <label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
+          <label className="switch-field invoice-payment-switch"><input type="checkbox" checked={invoicePayment} onChange={(event) => { const checked = event.target.checked; setInvoicePayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
+          {invoicePayment ? <>
+            <div className="row"><label>№ счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+            <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
+          </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterSearchOptions, singleExpenseTag } from './ExpenseModalStable';
+import { filterSearchOptions, invoiceAmountForSubmission, singleExpenseTag } from './ExpenseModalStable';
 
 describe('поиск в списках расхода', () => {
   const options = [
@@ -16,5 +16,12 @@ describe('поиск в списках расхода', () => {
 describe('выбор тега расхода', () => {
   it('заменяет предыдущий тег новым', () => {
     expect(singleExpenseTag(['tag-1'], 'tag-2')).toEqual(['tag-2']);
+  });
+});
+
+describe('тип оплаты расхода', () => {
+  it('для счета использует сумму счета, а для оплаты без счета — сумму платежа', () => {
+    expect(invoiceAmountForSubmission(true, '1500', '1000')).toBe('1500');
+    expect(invoiceAmountForSubmission(false, '', '1000')).toBe('1000');
   });
 });
