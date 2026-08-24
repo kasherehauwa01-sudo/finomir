@@ -216,6 +216,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
             invoice_number: invoicePayment ? invoiceNumber || 'Без номера' : 'Наличные',
             invoice_date: invoicePayment ? invoiceDate : paymentDate,
             amount: submittedInvoiceAmount,
+            allow_duplicate: !invoicePayment,
           }),
         });
         if (paymentAmount) {

@@ -238,7 +238,9 @@ def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
  if not exp or exp.deleted_at: raise HTTPException(404,"Расход не найден")
  dup=db.scalar(select(Invoice).where(func.lower(func.trim(Invoice.invoice_number))==data.invoice_number.strip().lower(),Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
- if dup: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
+ # Для оплат без счета создается техническая запись «Наличные». У таких
+ # записей совпадение номера и суммы допустимо и явно разрешается клиентом.
+ if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  x=Invoice(expense_id=expense_id,**data.model_dump(exclude={"allow_duplicate"})); db.add(x); db.flush(); db.add(AuditLog(entity_type="invoice",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
 @router.put("/invoices/{invoice_id}")
 def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
