@@ -39,7 +39,23 @@ export function Expenses() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const { data, error, loading } = useExpenses(search, page, revision);
+  const filters = useMemo(() => ({
+    search,
+    period: '',
+    payment_status: 'all',
+    partner_ids: [],
+    counterparty_ids: [],
+    store_ids: [],
+    tag_ids: [],
+    amount_from: '',
+    amount_to: '',
+    invoice_date_from: '',
+    invoice_date_to: '',
+    invoice_document: 'all',
+    closing_document: 'all',
+  }), [search]);
+
+  const { data, error, loading } = useExpenses(filters, page, revision);
 
   useEffect(() => {
     Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Tag[]>('/tags')])
@@ -91,7 +107,7 @@ export function Expenses() {
     } finally { setBulkBusy(false); }
   }
 
-  return <section className="expenses-page-wide">
+  return <>
     <div className="page-head"><div><h1>Расходы</h1><p>Единый реестр расходов отдела</p></div><button className="primary" onClick={() => setModal(true)}>+ Добавить расход</button></div>
     <div className="toolbar">
       <input placeholder="Поиск по партнеру, ИНН, счету…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
@@ -105,5 +121,5 @@ export function Expenses() {
     {data && data.total > data.page_size && <div className="pagination"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Назад</button><span>Страница {page}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage((value) => value + 1)}>Далее</button></div>}
     {modal && <ExpenseModal close={() => setModal(false)} onSaved={() => setRevision((value) => value + 1)} />}
     {bulkOpen && <div className="overlay" role="dialog" aria-modal="true"><form className="modal bulk-editor" onSubmit={applyBulk}><button className="close" type="button" onClick={() => setBulkOpen(false)} aria-label="Закрыть">×</button><h2>Изменить {selectedIds.length} расходов</h2><p>Заполните только те поля, которые нужно изменить у всех выбранных строк.</p>{bulkError && <div className="notice error">{bulkError}</div>}<label>Партнер<select value={bulkPartnerId} onChange={(event) => { setBulkPartnerId(event.target.value); setBulkCounterpartyId(''); }}><option value="">Не изменять</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Контрагент<select value={bulkCounterpartyId} onChange={(event) => setBulkCounterpartyId(event.target.value)}><option value="">Не изменять</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label><fieldset><legend><label className="bulk-toggle"><input type="checkbox" checked={editTags} onChange={(event) => setEditTags(event.target.checked)} />Изменить теги</label></legend><div className={`store-tags ${editTags ? '' : 'disabled-tags'}`}>{tags.map((tag) => { const selected = bulkTagIds.includes(tag.id); return <button disabled={!editTags} type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => setBulkTagIds((current) => current.includes(tag.id) ? current.filter((id) => id !== tag.id) : [...current, tag.id])}>{tag.name}</button>; })}</div><small>{editTags ? 'Выбранный набор полностью заменит текущие теги.' : 'Включите поле, чтобы изменить теги.'}</small></fieldset><div className="modal-actions"><button type="button" onClick={() => setBulkOpen(false)}>Отмена</button><button className="primary" disabled={bulkBusy}>{bulkBusy ? 'Сохраняем…' : 'Применить'}</button></div></form></div>}
-  </section>;
+  </>;
 }
