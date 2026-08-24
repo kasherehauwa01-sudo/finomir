@@ -35,27 +35,6 @@ def _money(value: str) -> Decimal | None:
     except InvalidOperation: return None
 
 
-def extract_service_name(text: str) -> str | None:
-    """Извлекает наименования строк из таблицы товаров, работ или услуг."""
-    lines = [re.sub(r"\s+", " ", line).strip(" |;:") for line in text.replace("\xa0", " ").splitlines()]
-    header = next((index for index, line in enumerate(lines) if re.search(r"(?:наименовани|товар).*(?:работ|услуг)|(?:работ|услуг).*товар", line, re.I)), None)
-    if header is None: return None
-    result = []
-    for line in lines[header + 1:header + 18]:
-        if not line: continue
-        if re.search(r"^(?:итого|всего|всего\s+к\s+оплате|ндс|сумма\s+ндс)\b", line, re.I): break
-        if re.search(r"^(?:№|кол-?во|количество|ед\.?|единица\s+измерения|цена|сумма|шт\.?|усл\.?|компл\.?)$", line, re.I): continue
-        candidate = re.sub(r"^\d+[.)]?\s*", "", line).strip()
-        # В горизонтальной строке таблицы отсекаем количество, единицу,
-        # цену и сумму, оставляя только текст наименования.
-        candidate = re.split(r"\s+(?=\d+(?:[.,]\d+)?\s+(?:(?:шт|усл|ед|компл|кг|м)\.?\s+)?\d)", candidate, maxsplit=1, flags=re.I)[0].strip(" .;|")
-        if len(candidate) < 3 or not re.search(r"[A-Za-zА-Яа-яЁё]", candidate): continue
-        if re.fullmatch(r"(?:товары?|работы?|услуги?)(?:\s*\([^)]*\))?", candidate, re.I): continue
-        if candidate not in result: result.append(candidate)
-        if len(result) == 3: break
-    return "; ".join(result)[:500] or None
-
-
 class RussianInvoiceParser:
     """Детерминированный парсер российских счетов, независимый от OCR-движка."""
     def parse(self, text: str, ocr_confidence: float = 1.0, blocks: list | None = None) -> OCRResult:
@@ -107,10 +86,9 @@ class RussianInvoiceParser:
         if not recipient:
             found = re.search(organization, normalized, re.I)
             if found: recipient, recipient_score = found.group(1).strip(), .65
-        service_name = extract_service_name(normalized)
         scale = max(.3, min(1.0, ocr_confidence))
         return OCRResult(invoice_number=number, invoice_date=date_value, invoice_amount=amount,
-            counterparty_name=recipient, inn=inn, kpp=kpp, service_name=service_name, raw_text=text, blocks=blocks or [],
+            counterparty_name=recipient, inn=inn, kpp=kpp, raw_text=text, blocks=blocks or [],
             confidence={"invoice_number": (header_score if number else 0) * scale, "invoice_date": (.94 if date_value and header else 0) * scale,
              "invoice_amount": amount_score * scale, "counterparty_name": recipient_score * scale,
-             "inn": ((.99 if inn_valid else .45) if inn else 0) * scale, "service_name": (.86 if service_name else 0) * scale})
+             "inn": ((.99 if inn_valid else .45) if inn else 0) * scale})

@@ -4,6 +4,7 @@ from app.services.finance import allocation_totals,distribute_evenly,expense_tot
 from app.services.duplicates import normalize_inn,normalize_number
 from app.services.storage import validate_file
 from app.services.ocr.parser import RussianInvoiceParser,validate_inn
+from app.api.routes import ExpenseBulkUpdateIn,router
 def test_payments(): assert invoice_totals(Decimal("100000"),[Decimal("40000"),Decimal("35000")])==(Decimal("75000"),Decimal("25000"))
 def test_multiple_invoices(): assert expense_totals([(Decimal("100"),[Decimal("25")]),(Decimal("50"),[Decimal("50")])])==(Decimal("150"),Decimal("75"),Decimal("75"))
 def test_allocations(): assert allocation_totals(Decimal("100000"),[Decimal("40000"),Decimal("35000"),Decimal("25000")])==(Decimal("100000"),Decimal("0"))
@@ -12,6 +13,15 @@ def test_normalization(): assert normalize_inn("77 01-234567")=="7701234567" and
 def test_file_validation():
  assert validate_file("x.jpeg","image/jpeg",10,1)==".jpg"
  with pytest.raises(ValueError): validate_file("../x.exe","application/pdf",10,1)
+
+def test_bulk_update_distinguishes_omitted_fields():
+ expense_id="00000000-0000-0000-0000-000000000001"
+ payload=ExpenseBulkUpdateIn(expense_ids=[expense_id],tag_ids=[])
+ assert payload.model_fields_set=={"expense_ids","tag_ids"}
+
+def test_bulk_update_route_precedes_expense_uuid_route():
+ put_paths=[route.path for route in router.routes if "PUT" in getattr(route,"methods",set()) and route.path.startswith("/expenses/")]
+ assert put_paths.index("/expenses/bulk/update")<put_paths.index("/expenses/{expense_id}")
 
 @pytest.mark.parametrize(("text","number","invoice_date","amount"),[
  ('Счет № 123 от 15.08.2026\nИтого 12 500,00', '123','2026-08-15','12500.00'),

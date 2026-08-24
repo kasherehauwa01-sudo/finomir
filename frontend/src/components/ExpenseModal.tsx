@@ -48,8 +48,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [invoicePayment, setInvoicePayment] = useState(true);
-  const invoiceFieldsBeforeCash = useRef({ number: '', date: today, amount: '' });
+  const [hasPayment, setHasPayment] = useState(false);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const cameraInput = useRef<HTMLInputElement>(null);
 
@@ -97,7 +96,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setInvoiceDate(response.fields.invoice_date.value ?? '');
       setInvoiceAmount(response.fields.amount.value ?? '');
       setPaymentAmount(response.fields.amount.value ?? '');
-      setServiceName(response.fields.service_name.value ?? '');
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
@@ -155,11 +153,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
-      const amountForInvoice = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
-      if (amountForInvoice && invoiceNumber.trim()) {
-        const check=await api<{duplicate:boolean}>(`/invoices/duplicate?${duplicateInvoiceQuery(invoiceNumber,amountForInvoice)}`);
-        if(check.duplicate) throw new Error('Дубль счета: такой номер счета и сумма уже существуют. Расход не сохранен.');
-      }
       let selectedCounterpartyId = counterpartyId;
       if (!selectedCounterpartyId && ocrReviewed && partnerId && recipient.trim()) {
         const digits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
@@ -184,7 +177,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      if (amountForInvoice) {
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
+      if (invoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
           body: JSON.stringify({
@@ -192,7 +186,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
             amount: amountForInvoice,
           }),
         });
-        if (paymentAmount) {
+        if (hasPayment && paymentAmount) {
           await api(`/invoices/${invoice.id}/payments`, {
             method: 'POST', body: JSON.stringify({ payment_date: today, amount: paymentAmount }),
           });
@@ -221,7 +215,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   }
 
   function toggleTag(tagId: string) {
-    setTagIds((current) => singleTagSelection(current,tagId));
+    setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
   }
 
   return <div className="overlay" role="dialog" aria-modal="true">
@@ -240,25 +234,25 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
-        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map(item=>({id:item.id,label:item.name,search:item.name}))} onChange={(id)=>{setPartnerId(id);setCounterpartyId('');setTagIds(partnerDefaultTagIds(partners,id));}}/>
+        <label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); }}><option value="">Выберите партнера</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
-        <SearchSelect label="Контрагент" value={counterpartyId} placeholder={ocrReviewed&&recipient.trim()?'Будет создан автоматически после сохранения':'Выберите контрагента'} searchPlaceholder="Поиск по названию или ИНН" options={availableCounterparties.map(item=>({id:item.id,label:item.full_name,search:`${item.full_name} ${item.inn??''}`}))} onChange={setCounterpartyId}/>
+        <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" />{ocrReviewed && ocrConfidence.service_name < .7 && <small>⚠ Проверьте наименование товара, работы или услуги</small>}</label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <label className="payment-toggle"><input type="checkbox" role="switch" checked={invoicePayment} onChange={toggleInvoicePayment} /><span aria-hidden="true" />Оплата по счету</label>
-          <div className="row"><label>Номер счета<input readOnly={!invoicePayment} value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{invoicePayment && ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input readOnly={!invoicePayment} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{invoicePayment && ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
-          {invoicePayment ? <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div> : <label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
+          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+          <label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
+          <label className="switch-field"><input type="checkbox" checked={hasPayment} onChange={(event) => { const checked = event.target.checked; setHasPayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
+          {hasPayment && <label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
-        <fieldset><legend>Тег *</legend>
-          <div className="store-tags" role="radiogroup" aria-label="Тег расхода">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" role="radio" aria-checked={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
+        <fieldset><legend>Теги</legend>
+          <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
           {!tags.length && <small>В справочнике пока нет тегов.</small>}
-          {!!tags.length && !tagIds.length && <small>Выберите один тег — без него расход сохранить нельзя.</small>}
         </fieldset>
         <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
       </form>}
