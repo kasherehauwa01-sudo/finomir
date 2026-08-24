@@ -36,6 +36,7 @@ export function Expenses() {
   const [editTags, setEditTags] = useState(false);
   const [bulkError, setBulkError] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -90,6 +91,20 @@ export function Expenses() {
     setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
   }
 
+  async function deleteSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length || !window.confirm(`Удалить выбранные расходы (${ids.length})? Это действие нельзя отменить.`)) return;
+    setDeleteBusy(true); setBulkError('');
+    try {
+      await api('/expenses/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+      setSelectedIds([]);
+      if (items.length === ids.length && page > 1) setPage((value) => value - 1);
+      else setRevision((value) => value + 1);
+    } catch (reason) {
+      setBulkError(reason instanceof Error ? reason.message : 'Не удалось удалить выбранные расходы');
+    } finally { setDeleteBusy(false); }
+  }
+
   async function applyBulk(event: FormEvent) {
     event.preventDefault();
     const payload: Record<string, unknown> = { expense_ids: selectedIds };
@@ -114,7 +129,8 @@ export function Expenses() {
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
     </div>
-    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button><button type="button" className="primary" onClick={() => setBulkOpen(true)}>Изменить выбранные</button></div>}
+    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button><button type="button" className="primary" disabled={deleteBusy} onClick={() => setBulkOpen(true)}>Изменить выбранные</button><button type="button" className="bulk-delete" disabled={deleteBusy} onClick={() => void deleteSelected()}>{deleteBusy ? 'Удаляем…' : 'Удалить выбранные'}</button></div>}
+    {bulkError && !bulkOpen && <div className="notice error" role="alert">{bulkError}</div>}
     {filtersOpen && <section className="toolbar-panel"><label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={period} onChange={(event) => setPeriod(event.target.value)} /></label><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label><button type="button" className="link" onClick={() => { setPeriod(''); setPaymentStatus('all'); }}>Сбросить фильтры</button></section>}
     {columnsOpen && <section className="toolbar-panel columns-panel">{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</section>}
     {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Нет соединения с сервером. {error}</div> : !items.length ? <section className="empty"><h2>{search || period || paymentStatus !== 'all' ? 'Ничего не найдено' : 'Расходов пока нет'}</h2><p>{search || period || paymentStatus !== 'all' ? 'Измените запрос или сбросьте фильтры.' : 'Добавьте первый расход или загрузите счет.'}</p></section> : <div className="table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" aria-label="Выбрать все расходы на странице" checked={allVisibleSelected} onChange={toggleVisible} /></th>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className="clickable-row" tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}><td className="select-cell" data-label="Выбрать" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Выбрать расход ${item.counterparty}`} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item.id)} /></td>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <td key={key} data-label={label}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}

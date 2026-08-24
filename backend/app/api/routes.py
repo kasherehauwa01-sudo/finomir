@@ -192,6 +192,15 @@ def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
   if selected_tags is not None: expense.tags=list(selected_tags)
   db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_updated",metadata_={"fields":sorted(fields)},created_at=datetime.now(timezone.utc)))
  db.commit(); return {"updated":len(expenses)}
+@router.post("/expenses/bulk-delete")
+def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
+ expenses=db.scalars(select(Expense).where(Expense.id.in_(data.ids),Expense.deleted_at.is_(None))).unique().all()
+ if len(expenses)!=len(set(data.ids)): raise HTTPException(404,"Один или несколько расходов не найдены")
+ deleted_at=datetime.now(timezone.utc)
+ for expense in expenses:
+  expense.deleted_at=deleted_at
+  db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_deleted",metadata_={},created_at=deleted_at))
+ db.commit(); return {"deleted":len(expenses)}
 @router.get("/expenses/{expense_id}")
 def expense_detail(expense_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
