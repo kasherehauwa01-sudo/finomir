@@ -47,17 +47,23 @@ def _redistribute_payments(expense_id:UUID,db:Session):
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
  q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
  if tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(tag_ids)))
  if store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(store_ids)))
- items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
- for expense in items:
+ if partner_ids:q=q.where(Expense.partner_id.in_(partner_ids))
+ if counterparty_ids:q=q.where(Expense.counterparty_id.in_(counterparty_ids))
+ source_items=db.scalars(q).unique().all(); items=[]; invoice_total=paid_total=Decimal(0); tag_totals={}
+ for expense in source_items:
   expense_total=Decimal(0)
+  expense_paid=Decimal(0)
   for invoice in expense.invoices:
    if invoice.deleted_at: continue
-   invoice_total+=invoice.amount; expense_total+=invoice.amount; paid_total+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+   expense_total+=invoice.amount; expense_paid+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+  remaining=expense_total-expense_paid
+  if payment_status=="paid" and remaining>0 or payment_status=="unpaid" and remaining<=0:continue
+  items.append(expense); invoice_total+=expense_total; paid_total+=expense_paid
   labels=[tag.name for tag in expense.tags] or ["Без тега"]
   for label in labels:
    current=tag_totals.setdefault(label,{"amount":Decimal(0),"expense_count":0}); current["amount"]+=expense_total; current["expense_count"]+=1
@@ -173,10 +179,14 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  for expense in db.scalars(select(Expense).where(Expense.tags.any(Tag.id==item_id))).all(): expense.tags.remove(x)
  db.delete(x); db.commit()
 @router.get("/expenses")
-def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
+def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",sort_by:str="invoice_date",sort_order:Literal["asc","desc"]="desc",db:Session=Depends(get_db)):
  # Репозиторий принимает объект фильтров. Передача строки напрямую проявлялась
  # как ошибка 500 только после ввода текста в строку поиска.
- items,total=ExpenseRepository(db).list(page,page_size,ExpenseFilters(search=search)); out=[]; documents_by_expense={x.id:set() for x in items}
+ if amount_from is not None and amount_to is not None and amount_from>amount_to:raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
+ if invoice_date_from and invoice_date_to and invoice_date_from>invoice_date_to:raise HTTPException(422,"Дата счета от не может быть позже даты счета до")
+ month,year=(map(int,period.split(".")) if period else (None,None))
+ filters=ExpenseFilters(search=search,expense_month=month,expense_year=year,payment_status=payment_status,partner_ids=tuple(partner_ids),counterparty_ids=tuple(counterparty_ids),store_ids=tuple(store_ids),tag_ids=tuple(tag_ids),amount_from=amount_from,amount_to=amount_to,invoice_date_from=invoice_date_from,invoice_date_to=invoice_date_to,invoice_document=invoice_document,closing_document=closing_document)
+ items,total=ExpenseRepository(db).list(page,page_size,filters,sort_by,sort_order); out=[]; documents_by_expense={x.id:set() for x in items}
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  notifications_by_expense={}

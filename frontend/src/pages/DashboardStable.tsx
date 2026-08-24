@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ExpenseModal } from '../components/ExpenseModalStable';
 import { api } from '../api/client';
-import type { DashboardSummary, Store, Tag } from '../types';
+import type { Counterparty, DashboardSummary, Partner, Store, Tag } from '../types';
 import type { StorePreset } from '../types';
 import { money } from '../utils/format';
 import { StorePresetLinks } from '../components/StorePresetLinks';
@@ -19,14 +19,19 @@ export function Dashboard() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [presets, setPresets] = useState<StorePreset[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [storeIds, setStoreIds] = useState<string[]>([]);
+  const [partnerIds, setPartnerIds] = useState<string[]>([]);
+  const [counterpartyIds, setCounterpartyIds] = useState<string[]>([]);
+  const [paymentStatus, setPaymentStatus] = useState('all');
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
-    Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores'), api<StorePreset[]>('/store-presets')])
-      .then(([tagItems, storeItems, presetItems]) => { setTags(tagItems); setStores(storeItems); setPresets(presetItems); })
+    Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores'), api<StorePreset[]>('/store-presets'), api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties')])
+      .then(([tagItems, storeItems, presetItems, partnerItems, counterpartyItems]) => { setTags(tagItems); setStores(storeItems); setPresets(presetItems); setPartners(partnerItems); setCounterparties(counterpartyItems); })
       .catch((reason: Error) => setError(reason.message));
   }, []);
 
@@ -34,25 +39,36 @@ export function Dashboard() {
     const query = new URLSearchParams({ period });
     tagIds.forEach((id) => query.append('tag_ids', id));
     storeIds.forEach((id) => query.append('store_ids', id));
+    partnerIds.forEach((id) => query.append('partner_ids', id));
+    counterpartyIds.forEach((id) => query.append('counterparty_ids', id));
+    if (paymentStatus !== 'all') query.set('payment_status', paymentStatus);
     setError('');
     setSummary(undefined);
     api<DashboardSummary>(`/dashboard?${query.toString()}`)
       .then(setSummary)
       .catch((reason: Error) => setError(reason.message));
-  }, [period, revision, tagIds, storeIds]);
+  }, [period, revision, tagIds, storeIds, partnerIds, counterpartyIds, paymentStatus]);
 
   function toggle(selected: string[], id: string, update: (value: string[]) => void) {
     update(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
   }
+  function togglePartner(id: string) {
+    const next = partnerIds.includes(id) ? partnerIds.filter((item) => item !== id) : [...partnerIds, id];
+    setPartnerIds(next);
+    setCounterpartyIds((current) => current.filter((counterpartyId) => counterparties.some((item) => item.id === counterpartyId && (!next.length || Boolean(item.partner_id && next.includes(item.partner_id))))));
+  }
 
   const maxTagAmount = Math.max(...(summary?.tag_totals.map((item) => Number(item.amount)) ?? []), 0);
-  const hasFilters = tagIds.length > 0 || storeIds.length > 0;
+  const hasFilters = tagIds.length > 0 || storeIds.length > 0 || partnerIds.length > 0 || counterpartyIds.length > 0 || paymentStatus !== 'all';
 
   return <>
     <div className="page-head"><div><p className="eyebrow">{labels[period]}</p><h1>Дашборд</h1><p>Финансовая картина маркетингового отдела</p></div><button className="primary" onClick={() => setModal(true)}>+ Добавить расход</button></div>
     <div className="period">{(Object.keys(labels) as Period[]).map((key) => <button key={key} className={period === key ? 'active' : ''} onClick={() => setPeriod(key)}>{labels[key]}</button>)}</div>
     <section className="dashboard-filters">
-      <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); }}>Сбросить</button>}</div>
+      <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); setPartnerIds([]); setCounterpartyIds([]); setPaymentStatus('all'); }}>Сбросить</button>}</div>
+      <div className="filter-grid dashboard-filter-grid"><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все расходы</option><option value="paid">Полностью оплачены</option><option value="unpaid">Есть остаток</option></select></label></div>
+      <div className="relation-field"><b>Партнеры</b><div className="relation-options">{partners.map((partner) => { const active=partnerIds.includes(partner.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={partner.id} onClick={() => togglePartner(partner.id)}>{partner.name}</button>; })}</div></div>
+      <div className="relation-field"><b>Контрагенты</b><div className="relation-options">{counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => { const active=counterpartyIds.includes(item.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={item.id} onClick={() => toggle(counterpartyIds,item.id,setCounterpartyIds)}>{item.full_name}</button>; })}</div></div>
       <div className="relation-field"><b>Теги</b><div className="relation-options">{tags.map((tag) => { const active = tagIds.includes(tag.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggle(tagIds, tag.id, setTagIds)}>{tag.name}</button>; })}</div></div>
       <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds} /><div className="relation-options">{stores.map((store) => { const active = storeIds.includes(store.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggle(storeIds, store.id, setStoreIds)}>{store.name}</button>; })}</div></div>
     </section>
