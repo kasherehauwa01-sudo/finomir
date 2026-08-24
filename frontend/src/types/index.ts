@@ -5,6 +5,7 @@ export type DashboardSummary = { invoice_total: string; paid_total: string; rema
 export type Partner = { id: string; name: string; comment?: string | null };
 export type Counterparty = { id: string; partner_id: string | null; full_name: string; short_name?: string | null; entity_type: string; inn?: string | null; kpp?: string | null; comment?: string | null };
 export type Store = { id: string; name: string; address?: string; is_active: boolean };
+export type StorePreset = { id: string; name: string; store_ids: string[]; stores: string[] };
 export type Tag = { id: string; name: string };
 export type ExpenseImportResult = { loaded: number; errors_count: number; errors: { row: number; message: string }[] };
 export type OCRResponse = {

@@ -36,6 +36,7 @@ class ExpenseBulkUpdateIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1)
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
+class StorePresetIn(BaseModel): name:str=Field(min_length=1,max_length=255); store_ids:list[UUID]=Field(min_length=1)
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1)
 class ExpenseBulkTagsIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); tag_ids:list[UUID]=Field(default_factory=list,max_length=100); action:Literal["add","remove","replace"]
@@ -128,6 +129,27 @@ def update_store(item_id:UUID,data:StoreIn,db:Session=Depends(get_db)):
  if not x: raise HTTPException(404,"Магазин не найден")
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); db.refresh(x); return x
+def store_preset_out(item):return {"id":item.id,"name":item.name,"store_ids":[store.id for store in item.stores],"stores":[store.name for store in item.stores]}
+def preset_stores(store_ids:list[UUID],db:Session):
+ stores=db.scalars(select(Store).where(Store.id.in_(store_ids),Store.is_active.is_(True))).all()
+ if len(stores)!=len(set(store_ids)):raise HTTPException(422,"Один или несколько магазинов не найдены")
+ return stores
+@router.get("/store-presets")
+def store_presets(db:Session=Depends(get_db)):
+ return [store_preset_out(item) for item in db.scalars(select(StorePreset).options(selectinload(StorePreset.stores)).order_by(StorePreset.name)).all()]
+@router.post("/store-presets",status_code=201)
+def create_store_preset(data:StorePresetIn,db:Session=Depends(get_db)):
+ item=StorePreset(name=data.name.strip(),stores=preset_stores(data.store_ids,db)); db.add(item); db.commit(); db.refresh(item); return store_preset_out(item)
+@router.put("/store-presets/{item_id}")
+def update_store_preset(item_id:UUID,data:StorePresetIn,db:Session=Depends(get_db)):
+ item=db.get(StorePreset,item_id)
+ if not item:raise HTTPException(404,"Пресет не найден")
+ item.name=data.name.strip(); item.stores=preset_stores(data.store_ids,db); db.commit(); db.refresh(item); return store_preset_out(item)
+@router.delete("/store-presets/{item_id}",status_code=204)
+def delete_store_preset(item_id:UUID,db:Session=Depends(get_db)):
+ item=db.get(StorePreset,item_id)
+ if not item:raise HTTPException(404,"Пресет не найден")
+ db.delete(item); db.commit()
 @router.delete("/stores/{item_id}",status_code=204)
 def archive_store(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Store,item_id)

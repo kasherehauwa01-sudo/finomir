@@ -16,6 +16,10 @@ class Tag(Base,UUIDMixin,TimestampMixin):
  __tablename__="tags"; name:Mapped[str]=mapped_column(String(100),unique=True)
 class Store(Base,UUIDMixin,TimestampMixin):
  __tablename__="stores"; name:Mapped[str]=mapped_column(String(255),unique=True); address:Mapped[str|None]=mapped_column(Text); comment:Mapped[str|None]=mapped_column(Text); is_active:Mapped[bool]=mapped_column(Boolean,default=True); is_system:Mapped[bool]=mapped_column(Boolean,default=False)
+class StorePresetStore(Base):
+ __tablename__="store_preset_stores"; preset_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("store_presets.id",ondelete="CASCADE"),primary_key=True); store_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("stores.id",ondelete="CASCADE"),primary_key=True)
+class StorePreset(Base,UUIDMixin,TimestampMixin):
+ __tablename__="store_presets"; name:Mapped[str]=mapped_column(String(255),unique=True); stores:Mapped[list[Store]]=relationship(secondary="store_preset_stores",order_by="Store.name")
 class ExpenseTag(Base):
  __tablename__="expense_tags"; expense_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("expenses.id"),primary_key=True); tag_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("tags.id"),primary_key=True)
 class Expense(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):

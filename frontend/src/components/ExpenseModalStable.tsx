@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { Counterparty, OCRResponse, Partner, Store, Tag } from '../types';
+import type { StorePreset } from '../types';
+import { StorePresetLinks } from './StorePresetLinks';
 
 // Компонент намеренно хранит единый согласованный набор состояний формы:
 // invoiceDate, hasPayment и paymentAmount. Не смешивать его с устаревшими
@@ -64,6 +66,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [presets, setPresets] = useState<StorePreset[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
@@ -97,11 +100,13 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       api<Counterparty[]>('/counterparties'),
       api<Store[]>('/stores'),
       api<Tag[]>('/tags'),
-    ]).then(([partnerItems, counterpartyItems, storeItems, tagItems]) => {
+      api<StorePreset[]>('/store-presets'),
+    ]).then(([partnerItems, counterpartyItems, storeItems, tagItems, presetItems]) => {
       setPartners(partnerItems);
       setCounterparties(counterpartyItems);
       setStores(storeItems);
       setTags(tagItems);
+      setPresets(presetItems);
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
@@ -285,6 +290,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
+          <StorePresetLinks presets={presets} onSelect={(storeIds) => setAllocations(storeIds.map((storeId) => ({ store_id: storeId, amount: '0' })))} />
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
           <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
