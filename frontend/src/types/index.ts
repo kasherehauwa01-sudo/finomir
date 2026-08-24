@@ -1,4 +1,5 @@
-export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; tags: string[]; has_invoice_document: boolean; is_cash_payment: boolean; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
+export type ExpenseNotification = { created_at: string; recipients: string[]; status: string };
+export type Expense = { id: string; period: string; partner: string; counterparty: string; stores: string[]; tags: string[]; has_invoice_document: boolean; is_cash_payment: boolean; notification: ExpenseNotification | null; has_closing_document: boolean; service_name: string; invoice_total: string; paid_total: string; remaining_total: string; updated_at: string };
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type DashboardSummary = { invoice_total: string; paid_total: string; remaining_total: string; expense_count: number; period: 'month' | 'quarter' | 'year'; tag_totals: { tag: string; amount: string; expense_count: number }[] };
 export type Partner = { id: string; name: string; comment?: string | null };
@@ -35,4 +36,5 @@ export type ExpenseDetail = {
   tags: ExpenseTag[];
   invoices: ExpenseInvoice[];
   documents: ExpenseDocument[];
+  notification: ExpenseNotification | null;
 };

@@ -10,6 +10,16 @@ type SMTPData = { host:string;port:number;security:'ssl'|'starttls'|'none';usern
 type SMTPPayload = Pick<SMTPData, 'host'|'port'|'security'|'username'|'from_email'|'from_name'> & { password:string|null };
 type Scenario = { id:string;name:string;enabled:boolean;subject_template?:string;body_template?:string;recipients?:string[];variables?:string[] };
 type Notification = { id:string;created_at:string;recipients:string[];subject:string;body:string;status:string;notification_type:string;original_filename?:string|null;attachment_present:boolean };
+export const scenarioRecipients = (saved: string[] = [], draft: string) => { const email=draft.trim(); return email && !saved.includes(email) ? [...saved,email] : saved; };
+
+const emptySMTP: SMTPData = { host:'',port:465,security:'ssl',username:'',from_email:'',from_name:'',password_set:false,status:'not_configured' };
+type SMTPResponse = Partial<Omit<SMTPData, 'username'|'from_name'>> & { username?:string|null;from_name?:string|null };
+const normalizeSMTP = (data: SMTPResponse): SMTPData => ({ ...emptySMTP, ...data, username:data.username??'', from_name:data.from_name??'' });
+export const smtpPayload = (smtp: SMTPData, password: string): SMTPPayload => ({
+  host: smtp.host.trim(), port: smtp.port || 465, security: smtp.security || 'ssl',
+  username: smtp.username.trim(), password: password || null,
+  from_email: smtp.from_email.trim(), from_name: smtp.from_name.trim(),
+});
 
 const emptySMTP: SMTPData = { host:'',port:465,security:'ssl',username:'',from_email:'',from_name:'',password_set:false,status:'not_configured' };
 type SMTPResponse = Partial<Omit<SMTPData, 'username'|'from_name'>> & { username?:string|null;from_name?:string|null };
@@ -40,8 +50,8 @@ export function Settings() {
     catch(e){setMessage(e instanceof Error?e.message:'Ошибка сохранения');}finally{setBusy(false)}
   }
   async function sendTest(){setBusy(true);try{const result=await api<{message:string}>('/settings/smtp/test',{method:'POST',body:JSON.stringify({recipient:testEmail})});setMessage(result.message);setTestOpen(false);}catch(e){setMessage(e instanceof Error?e.message:'Не удалось отправить тестовое письмо');}finally{setBusy(false)}}
-  async function openScenario(id:string){setScenario(await api<Scenario>(`/settings/scenarios/${id}`));}
-  async function saveScenario(){if(!scenario)return;setBusy(true);try{await api(`/settings/scenarios/${scenario.id}`,{method:'PUT',body:JSON.stringify({enabled:scenario.enabled,subject_template:scenario.subject_template,body_template:scenario.body_template,recipients:scenario.recipients??[]})});setMessage('Сценарий сохранен');setScenario(undefined);setScenarios(await api<Scenario[]>('/settings/scenarios'));}catch(e){setMessage(e instanceof Error?e.message:'Ошибка сохранения');}finally{setBusy(false)}}
+  async function openScenario(id:string){setRecipient('');setScenario(await api<Scenario>(`/settings/scenarios/${id}`));}
+  async function saveScenario(){if(!scenario)return;setBusy(true);try{await api(`/settings/scenarios/${scenario.id}`,{method:'PUT',body:JSON.stringify({enabled:scenario.enabled,subject_template:scenario.subject_template,body_template:scenario.body_template,recipients:scenarioRecipients(scenario.recipients,recipient)})});setRecipient('');setMessage('Сценарий сохранен');setScenario(undefined);setScenarios(await api<Scenario[]>('/settings/scenarios'));}catch(e){setMessage(e instanceof Error?e.message:'Ошибка сохранения');}finally{setBusy(false)}}
 
   async function handleCopy() {
     window.clearTimeout(resetTimer.current);

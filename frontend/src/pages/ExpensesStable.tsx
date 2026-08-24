@@ -5,6 +5,7 @@ import { ExpenseModal } from '../components/ExpenseModalStable';
 import { buildExpenseIdsQuery, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
+import { NotificationStatus } from '../components/NotificationStatus';
 
 // Реестр использует один набор состояний selectedIds/bulk* и локальные
 // period/paymentStatus. Это предотвращает повторное смешение двух реализаций
@@ -82,6 +83,7 @@ export function Expenses() {
     const value = item[column];
     if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((entry) => <span key={entry}>{entry}</span>)}</div>;
     if (column === 'has_invoice_document' && item.is_cash_payment) return <span className="cash-payment" role="img" aria-label="Оплата наличными">💰</span>;
+    if (column === 'has_invoice_document' && value) return <NotificationStatus compact notification={item.notification} />;
     if (column === 'has_invoice_document' || column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'} aria-label={value ? 'Документ загружен' : 'Документ отсутствует'}>{value ? '✓' : '×'}</span>;
     return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
