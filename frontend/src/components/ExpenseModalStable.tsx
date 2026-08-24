@@ -207,7 +207,6 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       const submittedInvoiceAmount = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
       if (submittedInvoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
@@ -225,6 +224,9 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           });
         }
       }
+      // Сначала сохраняем счет и платеж, и только затем прикрепляем OCR-документ:
+      // endpoint прикрепления запускает уведомление уже с полными данными счета.
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       onSaved();
       close();
     } catch (error) {
