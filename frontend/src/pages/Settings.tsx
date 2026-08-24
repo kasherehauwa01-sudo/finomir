@@ -21,14 +21,6 @@ export const smtpPayload = (smtp: SMTPData, password: string): SMTPPayload => ({
   from_email: smtp.from_email.trim(), from_name: smtp.from_name.trim(),
 });
 
-const emptySMTP: SMTPData = { host:'',port:465,security:'ssl',username:'',from_email:'',from_name:'',password_set:false,status:'not_configured' };
-type SMTPResponse = Partial<Omit<SMTPData, 'username'|'from_name'>> & { username?:string|null;from_name?:string|null };
-const normalizeSMTP = (data: SMTPResponse): SMTPData => ({ ...emptySMTP, ...data, username:data.username??'', from_name:data.from_name??'' });
-export const smtpPayload = (smtp: SMTPData, password: string): SMTPPayload => ({
-  host: smtp.host.trim(), port: smtp.port || 465, security: smtp.security || 'ssl',
-  username: smtp.username.trim(), password: password || null,
-  from_email: smtp.from_email.trim(), from_name: smtp.from_name.trim(),
-});
 
 export function Settings() {
   const [status, setStatus] = useState<CopyStatus>('idle');
