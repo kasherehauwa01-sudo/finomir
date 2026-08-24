@@ -23,14 +23,20 @@ from app.services.storage import save_bytes
 from app.services.notifications import notify_new_invoice
 router=APIRouter()
 logger=logging.getLogger(__name__)
+def has_cash_payment(invoices)->bool:return any(not item.deleted_at and item.invoice_number.strip().casefold()=="наличные" for item in invoices)
+def notification_out(item):
+ return {"created_at":item.created_at,"recipients":item.recipients,"status":item.status} if item else None
+def duplicate_invoice_query(invoice_number:str,amount:Decimal):
+ return select(Invoice).join(Expense,Invoice.expense_id==Expense.id).where(func.lower(func.trim(Invoice.invoice_number))==invoice_number.strip().lower(),Invoice.amount==amount,Invoice.deleted_at.is_(None),Expense.deleted_at.is_(None))
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
-class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list)
+class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list,max_length=1)
 class ExpenseBulkUpdateIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); partner_id:UUID|None=None; counterparty_id:UUID|None=None; tag_ids:list[UUID]|None=None
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
+class StorePresetIn(BaseModel): name:str=Field(min_length=1,max_length=255); store_ids:list[UUID]=Field(min_length=1)
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1)
 class ExpenseBulkTagsIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); tag_ids:list[UUID]=Field(default_factory=list,max_length=100); action:Literal["add","remove","replace"]
@@ -41,17 +47,23 @@ def _redistribute_payments(expense_id:UUID,db:Session):
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
  q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
  if tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(tag_ids)))
  if store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(store_ids)))
- items=db.scalars(q).unique().all(); invoice_total=paid_total=Decimal(0); tag_totals={}
- for expense in items:
+ if partner_ids:q=q.where(Expense.partner_id.in_(partner_ids))
+ if counterparty_ids:q=q.where(Expense.counterparty_id.in_(counterparty_ids))
+ source_items=db.scalars(q).unique().all(); items=[]; invoice_total=paid_total=Decimal(0); tag_totals={}
+ for expense in source_items:
   expense_total=Decimal(0)
+  expense_paid=Decimal(0)
   for invoice in expense.invoices:
    if invoice.deleted_at: continue
-   invoice_total+=invoice.amount; expense_total+=invoice.amount; paid_total+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+   expense_total+=invoice.amount; expense_paid+=sum((payment.amount for payment in invoice.payments if not payment.deleted_at),Decimal(0))
+  remaining=expense_total-expense_paid
+  if payment_status=="paid" and remaining>0 or payment_status=="unpaid" and remaining<=0:continue
+  items.append(expense); invoice_total+=expense_total; paid_total+=expense_paid
   labels=[tag.name for tag in expense.tags] or ["Без тега"]
   for label in labels:
    current=tag_totals.setdefault(label,{"amount":Decimal(0),"expense_count":0}); current["amount"]+=expense_total; current["expense_count"]+=1
@@ -123,6 +135,27 @@ def update_store(item_id:UUID,data:StoreIn,db:Session=Depends(get_db)):
  if not x: raise HTTPException(404,"Магазин не найден")
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); db.refresh(x); return x
+def store_preset_out(item):return {"id":item.id,"name":item.name,"store_ids":[store.id for store in item.stores],"stores":[store.name for store in item.stores]}
+def preset_stores(store_ids:list[UUID],db:Session):
+ stores=db.scalars(select(Store).where(Store.id.in_(store_ids),Store.is_active.is_(True))).all()
+ if len(stores)!=len(set(store_ids)):raise HTTPException(422,"Один или несколько магазинов не найдены")
+ return stores
+@router.get("/store-presets")
+def store_presets(db:Session=Depends(get_db)):
+ return [store_preset_out(item) for item in db.scalars(select(StorePreset).options(selectinload(StorePreset.stores)).order_by(StorePreset.name)).all()]
+@router.post("/store-presets",status_code=201)
+def create_store_preset(data:StorePresetIn,db:Session=Depends(get_db)):
+ item=StorePreset(name=data.name.strip(),stores=preset_stores(data.store_ids,db)); db.add(item); db.commit(); db.refresh(item); return store_preset_out(item)
+@router.put("/store-presets/{item_id}")
+def update_store_preset(item_id:UUID,data:StorePresetIn,db:Session=Depends(get_db)):
+ item=db.get(StorePreset,item_id)
+ if not item:raise HTTPException(404,"Пресет не найден")
+ item.name=data.name.strip(); item.stores=preset_stores(data.store_ids,db); db.commit(); db.refresh(item); return store_preset_out(item)
+@router.delete("/store-presets/{item_id}",status_code=204)
+def delete_store_preset(item_id:UUID,db:Session=Depends(get_db)):
+ item=db.get(StorePreset,item_id)
+ if not item:raise HTTPException(404,"Пресет не найден")
+ db.delete(item); db.commit()
 @router.delete("/stores/{item_id}",status_code=204)
 def archive_store(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Store,item_id)
@@ -146,12 +179,22 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  for expense in db.scalars(select(Expense).where(Expense.tags.any(Tag.id==item_id))).all(): expense.tags.remove(x)
  db.delete(x); db.commit()
 @router.get("/expenses")
-def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
- items,total=ExpenseRepository(db).list(page,page_size,search); out=[]; documents_by_expense={x.id:set() for x in items}
+def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",sort_by:str="invoice_date",sort_order:Literal["asc","desc"]="desc",db:Session=Depends(get_db)):
+ # Репозиторий принимает объект фильтров. Передача строки напрямую проявлялась
+ # как ошибка 500 только после ввода текста в строку поиска.
+ if amount_from is not None and amount_to is not None and amount_from>amount_to:raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
+ if invoice_date_from and invoice_date_to and invoice_date_from>invoice_date_to:raise HTTPException(422,"Дата счета от не может быть позже даты счета до")
+ month,year=(map(int,period.split(".")) if period else (None,None))
+ filters=ExpenseFilters(search=search,expense_month=month,expense_year=year,payment_status=payment_status,partner_ids=tuple(partner_ids),counterparty_ids=tuple(counterparty_ids),store_ids=tuple(store_ids),tag_ids=tuple(tag_ids),amount_from=amount_from,amount_to=amount_to,invoice_date_from=invoice_date_from,invoice_date_to=invoice_date_to,invoice_document=invoice_document,closing_document=closing_document)
+ items,total=ExpenseRepository(db).list(page,page_size,filters,sort_by,sort_order); out=[]; documents_by_expense={x.id:set() for x in items}
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
+ notifications_by_expense={}
+ if items:
+  logs=db.scalars(select(NotificationLog).where(NotificationLog.expense_id.in_(documents_by_expense),NotificationLog.notification_type=="new_invoice").order_by(NotificationLog.created_at.desc())).all()
+  for log in logs: notifications_by_expense.setdefault(log.expense_id,log)
  for x in items:
-  it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
+  active_invoices=[i for i in x.invoices if not i.deleted_at]; it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in active_invoices]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"is_cash_payment":has_cash_payment(x.invoices),"notification":notification_out(notifications_by_expense.get(x.id)),"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
 @router.get("/expenses/ids")
 def expense_ids(search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
@@ -190,11 +233,28 @@ def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
   if selected_tags is not None: expense.tags=list(selected_tags)
   db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_updated",metadata_={"fields":sorted(fields)},created_at=datetime.now(timezone.utc)))
  db.commit(); return {"updated":len(expenses)}
+@router.post("/expenses/bulk-delete")
+def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
+ expenses=db.scalars(select(Expense).where(Expense.id.in_(data.ids),Expense.deleted_at.is_(None))).unique().all()
+ if len(expenses)!=len(set(data.ids)): raise HTTPException(404,"Один или несколько расходов не найдены")
+ deleted_at=datetime.now(timezone.utc)
+ for expense in expenses:
+  expense.deleted_at=deleted_at
+  db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_deleted",metadata_={},created_at=deleted_at))
+ db.commit(); return {"deleted":len(expenses)}
+@router.post("/expenses/{expense_id}/notify")
+def notify_expense_invoice(expense_id:UUID,db:Session=Depends(get_db)):
+ expense=db.get(Expense,expense_id)
+ if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
+ document=db.scalar(select(Document).where(Document.expense_id==expense_id,Document.document_type=="invoice",Document.deleted_at.is_(None)).order_by(Document.created_at.desc()))
+ if not document:return {"triggered":False,"reason":"invoice_document_missing"}
+ notify_new_invoice(document.id,db); return {"triggered":True}
 @router.get("/expenses/{expense_id}")
 def expense_detail(expense_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x or x.deleted_at: raise HTTPException(404,"Расход не найден")
- return {"id":x.id,"partner_id":x.partner_id,"counterparty_id":x.counterparty_id,"service_name":x.service_name,"expense_month":x.expense_month,"expense_year":x.expense_year,"contract_number":x.contract_number,"contract_date":x.contract_date,"comment":x.comment,"allocations":[{"store_id":a.store_id,"store":a.store.name,"amount":a.amount} for a in x.allocations],"tags":[{"id":t.id,"name":t.name} for t in x.tags],"invoices":[{"id":i.id,"invoice_number":i.invoice_number,"invoice_date":i.invoice_date,"amount":i.amount,"payments":[{"id":p.id,"payment_date":p.payment_date,"amount":p.amount,"comment":p.comment} for p in i.payments if not p.deleted_at]} for i in x.invoices if not i.deleted_at],"documents":[{"id":d.id,"document_type":d.document_type,"original_filename":d.original_filename,"mime_type":d.mime_type,"created_at":d.created_at} for d in db.scalars(select(Document).where(Document.expense_id==x.id,Document.deleted_at.is_(None))).all()]}
+ notification=db.scalar(select(NotificationLog).where(NotificationLog.expense_id==x.id,NotificationLog.notification_type=="new_invoice").order_by(NotificationLog.created_at.desc()))
+ return {"id":x.id,"partner_id":x.partner_id,"counterparty_id":x.counterparty_id,"service_name":x.service_name,"expense_month":x.expense_month,"expense_year":x.expense_year,"contract_number":x.contract_number,"contract_date":x.contract_date,"comment":x.comment,"allocations":[{"store_id":a.store_id,"store":a.store.name,"amount":a.amount} for a in x.allocations],"tags":[{"id":t.id,"name":t.name} for t in x.tags],"invoices":[{"id":i.id,"invoice_number":i.invoice_number,"invoice_date":i.invoice_date,"amount":i.amount,"payments":[{"id":p.id,"payment_date":p.payment_date,"amount":p.amount,"comment":p.comment} for p in i.payments if not p.deleted_at]} for i in x.invoices if not i.deleted_at],"documents":[{"id":d.id,"document_type":d.document_type,"original_filename":d.original_filename,"mime_type":d.mime_type,"created_at":d.created_at} for d in db.scalars(select(Document).where(Document.expense_id==x.id,Document.deleted_at.is_(None))).all()],"notification":notification_out(notification)}
 @router.put("/expenses/{expense_id}")
 def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
@@ -235,8 +295,12 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
  if not exp or exp.deleted_at: raise HTTPException(404,"Расход не найден")
- dup=db.scalar(select(Invoice).where(func.lower(func.trim(Invoice.invoice_number))==data.invoice_number.strip().lower(),Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
- if dup: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
+ # Счета архивных расходов не участвуют в проверке: после удаления расход
+ # можно занести повторно, в том числе через распознавание документа.
+ dup=db.scalar(duplicate_invoice_query(data.invoice_number,data.amount))
+ # Для оплат без счета создается техническая запись «Наличные». У таких
+ # записей совпадение номера и суммы допустимо и явно разрешается клиентом.
+ if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  x=Invoice(expense_id=expense_id,**data.model_dump(exclude={"allow_duplicate"})); db.add(x); db.flush(); db.add(AuditLog(entity_type="invoice",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
 @router.put("/invoices/{invoice_id}")
 def update_invoice(invoice_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):

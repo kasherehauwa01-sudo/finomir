@@ -1,6 +1,8 @@
 import logging
 import mimetypes
 import smtplib
+import base64
+import hashlib
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -13,17 +15,29 @@ logger=logging.getLogger(__name__)
 @dataclass
 class EmailAttachment: filename:str; mime_type:str; data:bytes
 
+def _encryption_key()->bytes:
+ from cryptography.fernet import Fernet
+ settings=get_settings()
+ if settings.smtp_encryption_key:
+  configured=settings.smtp_encryption_key.encode()
+  try:Fernet(configured); return configured
+  except ValueError:
+   # Поддерживаем также обычную секретную строку из старых .env.
+   return base64.urlsafe_b64encode(hashlib.sha256(configured).digest())
+ # Каталог uploads подключен как постоянный Docker volume, поэтому ключ не
+ # теряется при пересборке или перезапуске backend-контейнера.
+ path=settings.upload_dir/".smtp_encryption_key"
+ path.parent.mkdir(parents=True,exist_ok=True)
+ if path.exists():return path.read_bytes().strip()
+ key=Fernet.generate_key(); path.write_bytes(key); path.chmod(0o600); return key
+
 def encrypt_password(value:str)->str:
  from cryptography.fernet import Fernet
- key=get_settings().smtp_encryption_key
- if not key: raise ValueError("Не задан SMTP_ENCRYPTION_KEY")
- return Fernet(key.encode()).encrypt(value.encode()).decode()
+ return Fernet(_encryption_key()).encrypt(value.encode()).decode()
 def decrypt_password(value:str|None)->str|None:
  if not value:return None
  from cryptography.fernet import Fernet
- key=get_settings().smtp_encryption_key
- if not key: raise ValueError("Не задан SMTP_ENCRYPTION_KEY")
- return Fernet(key.encode()).decrypt(value.encode()).decode()
+ return Fernet(_encryption_key()).decrypt(value.encode()).decode()
 def load_attachment(path:str,filename:str,mime_type:str|None)->EmailAttachment:
  data=Path(path).read_bytes(); return EmailAttachment(filename,mime_type or mimetypes.guess_type(filename)[0] or "application/octet-stream",data)
 def send_email(settings:SMTPSetting,recipients:list[str],subject:str,body:str,attachments:list[EmailAttachment]|None=None)->None:
