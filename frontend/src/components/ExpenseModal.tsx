@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { Counterparty, OCRResponse, Partner, Store, Tag } from '../types';
 
+// Компонент намеренно хранит единый согласованный набор состояний формы:
+// invoiceDate, hasPayment и paymentAmount. Не смешивать его с устаревшими
+// invoicePayment/invoiceFieldsBeforeCash из параллельных веток.
+
 type Props = { close: () => void; onSaved?: () => void };
 type Allocation = { store_id: string; amount: string };
 

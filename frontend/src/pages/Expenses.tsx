@@ -6,7 +6,11 @@ import { useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
 
-export const expenseColumns = [
+// Реестр использует один набор состояний selectedIds/bulk* и локальные
+// period/paymentStatus. Это предотвращает повторное смешение двух реализаций
+// массовых действий при разрешении merge-конфликтов.
+
+const columns = [
   ['period', 'Период'], ['partner', 'Партнер'], ['counterparty', 'Контрагент'],
   ['stores', 'Магазины'], ['tags', 'Тег'], ['service_name', 'Услуга'], ['invoice_total', 'Сумма счетов'],
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],

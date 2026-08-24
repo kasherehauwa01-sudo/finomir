@@ -7,6 +7,9 @@ import { money } from '../utils/format';
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
 
+// Фильтры дашборда передаются API непосредственно как tag_ids/store_ids;
+// удалённые helper-функции старой группировки здесь намеренно не используются.
+
 export function Dashboard() {
   const [modal, setModal] = useState(false);
   const [period, setPeriod] = useState<Period>('month');

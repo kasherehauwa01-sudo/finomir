@@ -3,6 +3,9 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Counterparty, Partner, PartnerDetail } from '../types';
 
+// Payload карточки формируется рядом с соответствующей веткой сохранения,
+// чтобы типы партнера и контрагента не смешивались при последующих merge.
+
 export function DirectoryCard() {
   const { directory = '', itemId = '' } = useParams();
   const isPartner = directory === 'partners';

@@ -7,6 +7,9 @@ const directories = { partners:{title:'Партнеры',icon:'◎',endpoint:'/p
 type DirectoryKey=keyof typeof directories;
 type Item={id:string;name?:string;full_name?:string;partner_id?:string;entity_type?:string;inn?:string;kpp?:string;address?:string;comment?:string;is_system?:boolean};
 
+// Поиск выполняется над текущим универсальным Item без устаревших внешних
+// filterPartners/filterLinkedCounterparties из другой реализации страницы.
+
 export function Directories(){
  const {directory}=useParams<{directory?:string}>(); const selected=directory&&directory in directories?directory as DirectoryKey:undefined;
  const [items,setItems]=useState<Item[]>([]); const [partners,setPartners]=useState<Partner[]>([]); const [counterparties,setCounterparties]=useState<Counterparty[]>([]); const [editing,setEditing]=useState<Item|null>(); const [error,setError]=useState(''); const [search,setSearch]=useState('');
