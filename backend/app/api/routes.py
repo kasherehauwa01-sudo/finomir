@@ -147,7 +147,9 @@ def delete_tag(item_id:UUID,db:Session=Depends(get_db)):
  db.delete(x); db.commit()
 @router.get("/expenses")
 def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:str|None=None,db:Session=Depends(get_db)):
- items,total=ExpenseRepository(db).list(page,page_size,search); out=[]; documents_by_expense={x.id:set() for x in items}
+ # Репозиторий принимает объект фильтров. Передача строки напрямую проявлялась
+ # как ошибка 500 только после ввода текста в строку поиска.
+ items,total=ExpenseRepository(db).list(page,page_size,ExpenseFilters(search=search)); out=[]; documents_by_expense={x.id:set() for x in items}
  if items:
   for expense_id,document_type in db.execute(select(Document.expense_id,Document.document_type).where(Document.expense_id.in_(documents_by_expense),Document.deleted_at.is_(None))): documents_by_expense[expense_id].add(document_type)
  for x in items:
