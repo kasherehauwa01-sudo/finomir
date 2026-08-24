@@ -30,7 +30,9 @@ export function buildExpenseIdsQuery(filters: ExpenseFilters): string {
   return params.toString();
 }
 
-export function useExpenses(filters: ExpenseFilters, page: number, revision = 0, sort: ExpenseSort = { by: 'invoice_date', order: 'desc' }) {
+const DEFAULT_EXPENSE_SORT: ExpenseSort = { by: 'invoice_date', order: 'desc' };
+
+export function useExpenses(filters: ExpenseFilters, page: number, revision = 0, sort: ExpenseSort = DEFAULT_EXPENSE_SORT) {
   const [data, setData] = useState<Page<Expense>>();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -38,7 +40,9 @@ export function useExpenses(filters: ExpenseFilters, page: number, revision = 0,
     setLoading(true);
     setError('');
     api<Page<Expense>>(`/expenses?${buildExpenseQuery(filters, page, sort)}`)
-      .then(setData).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
+      .then(setData)
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setLoading(false));
   }, [filters, page, revision, sort]);
   return { data, error, loading };
 }
