@@ -21,7 +21,6 @@ export const smtpPayload = (smtp: SMTPData, password: string): SMTPPayload => ({
   from_email: smtp.from_email.trim(), from_name: smtp.from_name.trim(),
 });
 
-
 export function Settings() {
   const [status, setStatus] = useState<CopyStatus>('idle');
   const resetTimer = useRef<number | undefined>(undefined);

@@ -26,6 +26,8 @@ logger=logging.getLogger(__name__)
 def has_cash_payment(invoices)->bool:return any(not item.deleted_at and item.invoice_number.strip().casefold()=="наличные" for item in invoices)
 def notification_out(item):
  return {"created_at":item.created_at,"recipients":item.recipients,"status":item.status} if item else None
+def duplicate_invoice_query(invoice_number:str,amount:Decimal):
+ return select(Invoice).join(Expense,Invoice.expense_id==Expense.id).where(func.lower(func.trim(Invoice.invoice_number))==invoice_number.strip().lower(),Invoice.amount==amount,Invoice.deleted_at.is_(None),Expense.deleted_at.is_(None))
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
@@ -254,7 +256,9 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
  if not exp or exp.deleted_at: raise HTTPException(404,"Расход не найден")
- dup=db.scalar(select(Invoice).where(func.lower(func.trim(Invoice.invoice_number))==data.invoice_number.strip().lower(),Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
+ # Счета архивных расходов не участвуют в проверке: после удаления расход
+ # можно занести повторно, в том числе через распознавание документа.
+ dup=db.scalar(duplicate_invoice_query(data.invoice_number,data.amount))
  # Для оплат без счета создается техническая запись «Наличные». У таких
  # записей совпадение номера и суммы допустимо и явно разрешается клиентом.
  if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Дубль счета: такой номер счета и сумма уже существуют","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
