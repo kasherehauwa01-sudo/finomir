@@ -1,6 +1,10 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import type { Counterparty, OCRResponse, Partner, Store } from '../types';
+import type { Counterparty, OCRResponse, Partner, Store, Tag } from '../types';
+
+// Компонент намеренно хранит единый согласованный набор состояний формы:
+// invoiceDate, hasPayment и paymentAmount. Не смешивать его с устаревшими
+// invoicePayment/invoiceFieldsBeforeCash из параллельных веток.
 
 type Props = { close: () => void; onSaved?: () => void };
 type Allocation = { store_id: string; amount: string };
@@ -14,6 +18,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState('');
   const [counterpartyId, setCounterpartyId] = useState('');
   const [serviceName, setServiceName] = useState('');
@@ -22,19 +28,33 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(today);
   const [invoiceAmount, setInvoiceAmount] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [inn, setInn] = useState('');
+  const [kpp, setKpp] = useState('');
+  const [ocrConfidence, setOcrConfidence] = useState<Record<string, number>>({});
+  const [preview, setPreview] = useState('');
+  const [ocrReviewed, setOcrReviewed] = useState(false);
+  const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [hasPayment, setHasPayment] = useState(false);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const input = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
+
+  function requestClose() {
+    if (window.confirm('Закрыть окно? Несохраненные данные будут потеряны.')) close();
+  }
 
   useEffect(() => {
     Promise.all([
       api<Partner[]>('/partners'),
       api<Counterparty[]>('/counterparties'),
       api<Store[]>('/stores'),
-    ]).then(([partnerItems, counterpartyItems, storeItems]) => {
+      api<Tag[]>('/tags'),
+    ]).then(([partnerItems, counterpartyItems, storeItems, tagItems]) => {
       setPartners(partnerItems);
       setCounterparties(counterpartyItems);
       setStores(storeItems);
+      setTags(tagItems);
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
@@ -48,27 +68,30 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     const form = new FormData();
     form.append('file', file);
     try {
-      const response = await api<OCRResponse>('/ocr', { method: 'POST', body: form });
-      const result = response.result;
-      setServiceName(result.service_name ?? '');
-      setInvoiceNumber(result.invoice_number ?? '');
-      setInvoiceDate(result.invoice_date ?? today);
-      setInvoiceAmount(result.invoice_amount ?? '');
-      setMonth(result.service_period?.month ?? new Date().getMonth() + 1);
-      setYear(result.service_period?.year ?? new Date().getFullYear());
-      const counterparty = counterparties.find((item) =>
-        (result.inn && item.inn === result.inn)
-        || (result.counterparty_name && item.full_name.toLowerCase().includes(result.counterparty_name.toLowerCase()))
-      );
-      if (counterparty) {
+      setPreview(URL.createObjectURL(file));
+      const response = await api<OCRResponse>('/ocr/invoice', { method: 'POST', body: form });
+      setInvoiceNumber(response.fields.invoice_number.value ?? '');
+      // После OCR неизвестная дата должна оставаться пустой, а не выглядеть
+      // как успешно распознанная текущая дата.
+      setInvoiceDate(response.fields.invoice_date.value ?? '');
+      setInvoiceAmount(response.fields.amount.value ?? '');
+      setPaymentAmount(response.fields.amount.value ?? '');
+      setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
+      setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
+      setOcrDocumentId(response.document_id);
+      const counterparty = counterparties.find((item) => item.id === response.counterparty.id);
+      if (counterparty?.partner_id) {
         setCounterpartyId(counterparty.id);
         setPartnerId(counterparty.partner_id);
       }
-      setMessage(response.message);
+      setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
+      setOcrReviewed(true);
       setMode('manual');
     } catch (error) {
-      setMessage(`Не удалось распознать документ. Заполните доступные поля вручную. ${error instanceof Error ? error.message : ''}`);
-      setMode('manual');
+      // API уже возвращает безопасное пользовательское описание причины
+      // (формат, размер файла или недоступность OCR), не скрываем его общей фразой.
+      setMessage(error instanceof Error ? error.message : 'Не удалось распознать счет. Попробуйте еще раз или заполните данные вручную.');
+      setMode('ocr');
     } finally {
       setBusy(false);
     }
@@ -105,14 +128,31 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
+      let selectedCounterpartyId = counterpartyId;
+      if (!selectedCounterpartyId && ocrReviewed && partnerId && recipient.trim()) {
+        const digits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
+        const existing = counterparties.find((item) => item.partner_id === partnerId && digits(item.inn) === digits(inn) && digits(inn));
+        if (existing) selectedCounterpartyId = existing.id;
+        else {
+          const created = await api<Counterparty>('/counterparties', {
+            method: 'POST',
+            body: JSON.stringify({ partner_id: partnerId, full_name: recipient.trim(), entity_type: recipient.trim().toUpperCase().startsWith('ИП ') ? 'entrepreneur' : 'company', inn: inn.trim() || null, kpp: kpp.trim() || null }),
+          });
+          setCounterparties((current) => [...current, created]);
+          setCounterpartyId(created.id);
+          selectedCounterpartyId = created.id;
+        }
+      }
       const expense = await api<{ id: string }>('/expenses', {
         method: 'POST',
         body: JSON.stringify({
-          partner_id: partnerId, counterparty_id: counterpartyId, service_name: serviceName,
+          partner_id: partnerId, counterparty_id: selectedCounterpartyId, service_name: serviceName,
           expense_month: month, expense_year: year,
-          allocations: allocations.filter((item) => item.store_id && Number(item.amount) > 0),
+          allocations: allocations.filter((item) => item.store_id).map((item) => ({ ...item, amount: item.amount || '0' })),
+          tag_ids: tagIds,
         }),
       });
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       if (invoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
@@ -121,7 +161,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
             amount: invoiceAmount,
           }),
         });
-        if (paymentAmount) {
+        if (hasPayment && paymentAmount) {
           await api(`/invoices/${invoice.id}/payments`, {
             method: 'POST', body: JSON.stringify({ payment_date: today, amount: paymentAmount }),
           });
@@ -136,45 +176,61 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     }
   }
 
-  function addAllocation() {
-    setAllocations((current) => [...current, { store_id: '', amount: '' }]);
+  function toggleStore(storeId: string) {
+    setAllocations((current) => current.some((item) => item.store_id === storeId)
+      ? current.filter((item) => item.store_id !== storeId)
+      : [...current, { store_id: storeId, amount: '0' }]);
+  }
+
+  function toggleAllStores() {
+    setAllocations((current) => current.length === stores.length
+      ? []
+      : stores.map((store) => ({ store_id: store.id, amount: '0' })));
+  }
+
+  function toggleTag(tagId: string) {
+    setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
   }
 
   return <div className="overlay" role="dialog" aria-modal="true">
-    <section className="modal">
-      <button className="close" type="button" onClick={close} aria-label="Закрыть">×</button>
+    <section className={`modal expense-modal ${mode === 'manual' && ocrReviewed && preview ? 'ocr-completion' : ''}`}>
+      <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
       <h2>{mode === 'choice' ? 'Как добавить расход?' : mode === 'ocr' ? 'Распознавание счета' : 'Новый расход'}</h2>
       {mode === 'choice' && <div className="choices">
-        <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => input.current?.click()); }}>📷<b>Автоматически</b><small>Сфотографировать или загрузить счёт</small></button>
+        <button type="button" onClick={() => { setMode('ocr'); setTimeout(() => cameraInput.current?.click()); }}>📷<b>Сфотографировать счет</b><small>Открыть камеру смартфона</small></button>
         <button type="button" onClick={() => setMode('manual')}>✎<b>Вручную</b><small>Заполнить данные самостоятельно</small></button>
       </div>}
-      <input ref={input} hidden type="file" accept="application/pdf,image/jpeg,image/png" capture="environment" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
+      <input ref={cameraInput} hidden type="file" accept="image/jpeg,image/png" capture="environment" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       {mode === 'ocr' && <>
         <div className="progress">{message || 'Выберите документ'}</div>
-        <button type="button" disabled={busy} onClick={() => input.current?.click()}>Выбрать другой файл</button>
+        <div className="modal-actions"><button type="button" disabled={busy} onClick={() => cameraInput.current?.click()}>Сфотографировать еще раз</button><button type="button" disabled={busy} onClick={() => setMode('manual')}>Заполнить вручную</button></div>
       </>}
-      {mode === 'manual' && <form onSubmit={submit}>
+      {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
+        {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
         <label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); }}><option value="">Выберите партнера</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
-        <label>Контрагент<select required value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">Выберите контрагента</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
+        <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} /></label><label>Дата счета<input type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} /></label></div>
-          <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} /></label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
+          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+          <label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
+          <label className="switch-field"><input type="checkbox" checked={hasPayment} onChange={(event) => { const checked = event.target.checked; setHasPayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
+          {hasPayment && <label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
-          {allocations.map((allocation, index) => <div className="allocation-row" key={index}>
-            <select aria-label="Магазин" value={allocation.store_id} onChange={(event) => setAllocations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, store_id: event.target.value } : item))}><option value="">Выберите магазин</option>{stores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}</select>
-            <input aria-label="Сумма распределения" type="number" min="0" step="0.01" placeholder="Сумма" value={allocation.amount} onChange={(event) => setAllocations((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amount: event.target.value } : item))} />
-            <button type="button" aria-label="Удалить распределение" onClick={() => setAllocations((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
-          </div>)}
-          <button type="button" className="link" onClick={addAllocation}>+ Добавить магазин</button>
+          {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
+          <div className="store-tags">{stores.map((store) => { const selected = allocations.some((item) => item.store_id === store.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggleStore(store.id)}>{store.name}</button>; })}</div>
         </fieldset>
-        <button className="primary" disabled={busy}>Сохранить расход</button>
+        <fieldset><legend>Теги</legend>
+          <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
+          {!tags.length && <small>В справочнике пока нет тегов.</small>}
+        </fieldset>
+        <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
       </form>}
+      {mode === 'manual' && ocrReviewed && preview && <aside className="invoice-source" aria-label="Исходный счет"><h3>Исходный счет</h3><div className="invoice-source__viewport"><img src={preview} alt="Исходный счет для проверки распознанных данных" /></div></aside>}
     </section>
   </div>;
 }
