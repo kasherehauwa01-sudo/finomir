@@ -2,6 +2,7 @@
 @media(max-width:700px){header{height:58px;padding:0 16px}header nav{display:none}main{padding:24px 16px 90px}.page-head{align-items:flex-start}.page-head h1{font-size:26px}.page-head .primary{position:fixed;right:16px;bottom:75px;z-index:5;border-radius:24px}.kpis{grid-template-columns:1fr 1fr}.kpis article{padding:16px}.kpis b{font-size:19px}.toolbar{display:grid;grid-template-columns:1fr 1fr}.toolbar input{grid-column:1/-1}.table-wrap{border:0;background:transparent}table,tbody,tr,td{display:block;min-width:0}thead{display:none}tr{background:white;border:1px solid #e4e8ee;border-radius:13px;padding:12px;margin-bottom:10px}td{border:0;padding:5px 8px}td:first-child{color:#175cd3;font-weight:700}.directory-grid{grid-template-columns:1fr}.mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid #ddd;justify-content:space-around;padding:8px;z-index:4}.mobile-nav a{font-size:13px}.choices{grid-template-columns:1fr}.modal{padding:25px 20px}}
 
 .settings-card{display:flex;gap:18px;max-width:760px;padding:24px;background:#fff;border:1px solid #e4e8ee;border-radius:16px;box-shadow:0 8px 24px rgba(29,41,57,.05)}
+.settings-card+.settings-card{margin-top:18px}
 .settings-card__icon{display:grid;place-items:center;flex:0 0 44px;height:44px;border-radius:12px;background:#edf4ff;color:#175cd3;font-size:24px;font-weight:700}
 .settings-card__content{min-width:0;flex:1}
 .settings-card h2{margin:2px 0 6px;font-size:20px}

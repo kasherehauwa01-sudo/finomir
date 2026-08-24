@@ -5,6 +5,7 @@ export type Partner = { id: string; name: string; comment?: string | null };
 export type Counterparty = { id: string; partner_id: string | null; full_name: string; short_name?: string | null; entity_type: string; inn?: string | null; kpp?: string | null; comment?: string | null };
 export type Store = { id: string; name: string; address?: string; is_active: boolean };
 export type Tag = { id: string; name: string };
+export type ExpenseImportResult = { loaded: number; errors_count: number; errors: { row: number; message: string }[] };
 export type OCRResponse = {
   status: 'success'; document_id: string;
   fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField };
