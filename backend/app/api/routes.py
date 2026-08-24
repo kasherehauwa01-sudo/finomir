@@ -247,7 +247,9 @@ async def upload_expense_document(expense_id:UUID,document_type:str=Query(patter
  data=await file.read(); s=get_settings()
  try: stored,path,sha=save_bytes(data,file.filename or "document",file.content_type or "",s.upload_dir,s.max_upload_size_mb)
  except ValueError as e: raise HTTPException(422,str(e))
- x=Document(expense_id=expense_id,document_type=document_type,original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(x); db.commit(); return {"id":x.id}
+ x=Document(expense_id=expense_id,document_type=document_type,original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(x); db.commit()
+ if document_type=="invoice": notify_new_invoice(x.id,db)
+ return {"id":x.id}
 @router.get("/documents/{document_id}/content")
 def document_content(document_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Document,document_id)
@@ -258,7 +260,9 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
  document=db.get(Document,document_id); expense=db.get(Expense,expense_id)
  if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
  if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
- document.expense_id=expense_id; db.commit(); return {"id":document.id}
+ document.expense_id=expense_id; db.commit()
+ if document.document_type=="invoice": notify_new_invoice(document.id,db)
+ return {"id":document.id}
 @router.post("/expenses/{expense_id}/invoices",status_code=201)
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
