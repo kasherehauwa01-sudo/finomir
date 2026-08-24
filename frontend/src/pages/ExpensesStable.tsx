@@ -79,6 +79,7 @@ export function Expenses() {
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
     if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((entry) => <span key={entry}>{entry}</span>)}</div>;
+    if (column === 'has_invoice_document' && item.is_cash_payment) return <span className="cash-payment" role="img" aria-label="Оплата наличными">💰</span>;
     if (column === 'has_invoice_document' || column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'} aria-label={value ? 'Документ загружен' : 'Документ отсутствует'}>{value ? '✓' : '×'}</span>;
     return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
