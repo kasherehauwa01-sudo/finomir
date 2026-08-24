@@ -27,7 +27,7 @@ def has_cash_payment(invoices)->bool:return any(not item.deleted_at and item.inv
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
-class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list)
+class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list,max_length=1)
 class ExpenseBulkUpdateIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); partner_id:UUID|None=None; counterparty_id:UUID|None=None; tag_ids:list[UUID]|None=None
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
