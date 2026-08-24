@@ -120,29 +120,6 @@ export function Expenses() {
     } finally { setDeleteBusy(false); }
   }
 
-  async function selectAllRows() {
-    setSelectingAll(true); setBulkError('');
-    try {
-      const result = await api<{ ids: string[] }>(`/expenses/ids?${buildExpenseIdsQuery(filters)}`);
-      setSelectedIds(result.ids ?? []);
-    } catch (reason) {
-      setBulkError(reason instanceof Error ? reason.message : 'Не удалось выделить все расходы');
-    } finally { setSelectingAll(false); }
-  }
-
-  async function deleteSelected() {
-    const ids = [...selectedIds];
-    if (!ids.length || !window.confirm(`Удалить выбранные расходы (${ids.length})? Это действие нельзя отменить.`)) return;
-    setDeleteBusy(true); setBulkError('');
-    try {
-      await api('/expenses/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
-      setSelectedIds([]);
-      if (items.length === ids.length && page > 1) setPage((value) => value - 1);
-      else setRevision((value) => value + 1);
-    } catch (reason) {
-      setBulkError(reason instanceof Error ? reason.message : 'Не удалось удалить выбранные расходы');
-    } finally { setDeleteBusy(false); }
-  }
 
   async function applyBulk(event: FormEvent) {
     event.preventDefault();
