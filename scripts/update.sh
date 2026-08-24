@@ -59,12 +59,26 @@ build_images() {
   return 1
 }
 
+verify_sources() {
+  log "Проверка исходников перед Docker-сборкой..."
+  # Эти проверки используют уже установленные зависимости, если они есть на
+  # сервере разработчика. Production остаётся независимым: TypeScript в любом
+  # случае повторно проверяется внутри frontend Dockerfile.
+  if [[ -d frontend/node_modules ]]; then
+    (cd frontend && npm run typecheck && npm test)
+  else
+    log "frontend/node_modules отсутствует — проверку выполнит Docker build."
+  fi
+  (cd backend && python -m compileall -q app) 2>/dev/null || log "Локальный Python backend недоступен — проверку выполнит Docker build."
+}
+
 if [[ "${SKIP_GIT_PULL:-0}" != "1" ]]; then
   log "Получение изменений..."
   git pull --ff-only
 fi
 
 check_docker_registry_network
+verify_sources
 build_images
 log "Запуск PostgreSQL и OCR..."
 docker compose up -d --wait postgres ocr
