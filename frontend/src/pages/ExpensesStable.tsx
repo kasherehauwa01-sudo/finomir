@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModalStable';
-import { useExpenses } from '../hooks/useExpenses';
+import { buildExpenseIdsQuery, useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
+import { NotificationStatus } from '../components/NotificationStatus';
 
 // Реестр использует один набор состояний selectedIds/bulk* и локальные
 // period/paymentStatus. Это предотвращает повторное смешение двух реализаций
@@ -16,6 +17,7 @@ const columns = [
   ['paid_total', 'Оплачено'], ['remaining_total', 'Остаток'], ['has_invoice_document', 'Счет'], ['has_closing_document', 'Акт'],
 ] as const;
 type Column = typeof columns[number][0];
+export const selectAllRowsLabel = (total: number) => `Выделить все строки (${total})`;
 
 export function Expenses() {
   const navigate = useNavigate();
@@ -36,6 +38,8 @@ export function Expenses() {
   const [editTags, setEditTags] = useState(false);
   const [bulkError, setBulkError] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -78,6 +82,8 @@ export function Expenses() {
   function renderCell(item: NonNullable<typeof data>['items'][number], column: Column) {
     const value = item[column];
     if (column === 'stores' || column === 'tags') return <div className="store-list">{item[column].map((entry) => <span key={entry}>{entry}</span>)}</div>;
+    if (column === 'has_invoice_document' && item.is_cash_payment) return <span className="cash-payment" role="img" aria-label="Оплата наличными">💰</span>;
+    if (column === 'has_invoice_document' && value) return <NotificationStatus compact notification={item.notification} />;
     if (column === 'has_invoice_document' || column === 'has_closing_document') return <span className={value ? 'document-ok' : 'document-missing'} aria-label={value ? 'Документ загружен' : 'Документ отсутствует'}>{value ? '✓' : '×'}</span>;
     return ['invoice_total', 'paid_total', 'remaining_total'].includes(column) ? money(value as string) : value;
   }
@@ -88,6 +94,30 @@ export function Expenses() {
 
   function toggleVisible() {
     setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
+  }
+
+  async function selectAllRows() {
+    setSelectingAll(true); setBulkError('');
+    try {
+      const result = await api<{ ids: string[] }>(`/expenses/ids?${buildExpenseIdsQuery(filters)}`);
+      setSelectedIds(result.ids ?? []);
+    } catch (reason) {
+      setBulkError(reason instanceof Error ? reason.message : 'Не удалось выделить все расходы');
+    } finally { setSelectingAll(false); }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length || !window.confirm(`Удалить выбранные расходы (${ids.length})? Это действие нельзя отменить.`)) return;
+    setDeleteBusy(true); setBulkError('');
+    try {
+      await api('/expenses/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+      setSelectedIds([]);
+      if (items.length === ids.length && page > 1) setPage((value) => value - 1);
+      else setRevision((value) => value + 1);
+    } catch (reason) {
+      setBulkError(reason instanceof Error ? reason.message : 'Не удалось удалить выбранные расходы');
+    } finally { setDeleteBusy(false); }
   }
 
   async function applyBulk(event: FormEvent) {
@@ -110,11 +140,12 @@ export function Expenses() {
   return <>
     <div className="page-head"><div><h1>Расходы</h1><p>Единый реестр расходов отдела</p></div><button className="primary" onClick={() => setModal(true)}>+ Добавить расход</button></div>
     <div className="toolbar">
-      <input placeholder="Поиск по партнеру, ИНН, счету…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+      <div className="expense-search"><input type="search" placeholder="Поиск по партнеру, ИНН, счету…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setSelectedIds([]); }} />{search && <button type="button" aria-label="Очистить поиск" title="Очистить поиск" onClick={() => { setSearch(''); setPage(1); setSelectedIds([]); }}>×</button>}</div>
       <button className={filtersOpen ? 'active-button' : ''} onClick={() => { setFiltersOpen((value) => !value); setColumnsOpen(false); }}>Фильтры</button>
       <button className={columnsOpen ? 'active-button' : ''} onClick={() => { setColumnsOpen((value) => !value); setFiltersOpen(false); }}>Настроить колонки</button>
     </div>
-    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button><button type="button" className="primary" onClick={() => setBulkOpen(true)}>Изменить выбранные</button></div>}
+    {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button>{allVisibleSelected && data && selectedIds.length < data.total && <button type="button" className="select-all-rows" disabled={selectingAll} onClick={() => void selectAllRows()}>{selectingAll ? 'Выделяем…' : selectAllRowsLabel(data.total)}</button>}<button type="button" className="primary" disabled={deleteBusy || selectingAll} onClick={() => setBulkOpen(true)}>Изменить выбранные</button><button type="button" className="bulk-delete" disabled={deleteBusy || selectingAll} onClick={() => void deleteSelected()}>{deleteBusy ? 'Удаляем…' : 'Удалить выбранные'}</button></div>}
+    {bulkError && !bulkOpen && <div className="notice error" role="alert">{bulkError}</div>}
     {filtersOpen && <section className="toolbar-panel"><label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={period} onChange={(event) => setPeriod(event.target.value)} /></label><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label><button type="button" className="link" onClick={() => { setPeriod(''); setPaymentStatus('all'); }}>Сбросить фильтры</button></section>}
     {columnsOpen && <section className="toolbar-panel columns-panel">{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</section>}
     {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Нет соединения с сервером. {error}</div> : !items.length ? <section className="empty"><h2>{search || period || paymentStatus !== 'all' ? 'Ничего не найдено' : 'Расходов пока нет'}</h2><p>{search || period || paymentStatus !== 'all' ? 'Измените запрос или сбросьте фильтры.' : 'Добавьте первый расход или загрузите счет.'}</p></section> : <div className="table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" aria-label="Выбрать все расходы на странице" checked={allVisibleSelected} onChange={toggleVisible} /></th>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className="clickable-row" tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}><td className="select-cell" data-label="Выбрать" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Выбрать расход ${item.counterparty}`} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item.id)} /></td>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <td key={key} data-label={label}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
