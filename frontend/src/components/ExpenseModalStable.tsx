@@ -225,8 +225,11 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         }
       }
       // Сначала сохраняем счет и платеж, и только затем прикрепляем OCR-документ:
-      // endpoint прикрепления запускает уведомление уже с полными данными счета.
-      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
+      // уведомление запускается явно в конце обработки кнопки «Сохранить».
+      if (ocrDocumentId) {
+        await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
+        await api(`/expenses/${expense.id}/notify`, { method: 'POST' });
+      }
       onSaved();
       close();
     } catch (error) {

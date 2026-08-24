@@ -41,6 +41,7 @@ export function ExpenseCard() {
     setSaving(true); setMessage('Сохраняем изменения…');
     try {
       await api(`/expenses/${expenseId}`, { method: 'PUT', body: JSON.stringify({ partner_id: current.partner_id, counterparty_id: current.counterparty_id, service_name: current.service_name, expense_month: current.expense_month, expense_year: current.expense_year, contract_number: current.contract_number || null, contract_date: current.contract_date || null, comment: current.comment || null, allocations: current.allocations.map((item) => ({ store_id: item.store_id, amount: item.amount || 0 })), tag_ids: current.tags.map((item) => item.id) }) });
+      await api(`/expenses/${expenseId}/notify`, { method: 'POST' });
       setEditing(false); setMessage('Изменения сохранены.'); load();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Не удалось сохранить изменения.'); }
     finally { setSaving(false); }

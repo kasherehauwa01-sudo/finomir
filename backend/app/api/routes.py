@@ -210,6 +210,13 @@ def bulk_delete_expenses(data:ExpenseBulkDeleteIn,db:Session=Depends(get_db)):
   expense.deleted_at=deleted_at
   db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_deleted",metadata_={},created_at=deleted_at))
  db.commit(); return {"deleted":len(expenses)}
+@router.post("/expenses/{expense_id}/notify")
+def notify_expense_invoice(expense_id:UUID,db:Session=Depends(get_db)):
+ expense=db.get(Expense,expense_id)
+ if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
+ document=db.scalar(select(Document).where(Document.expense_id==expense_id,Document.document_type=="invoice",Document.deleted_at.is_(None)).order_by(Document.created_at.desc()))
+ if not document:return {"triggered":False,"reason":"invoice_document_missing"}
+ notify_new_invoice(document.id,db); return {"triggered":True}
 @router.get("/expenses/{expense_id}")
 def expense_detail(expense_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
