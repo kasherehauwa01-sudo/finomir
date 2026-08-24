@@ -8,8 +8,8 @@ from app.database import Base
 from .base import SoftDeleteMixin, TimestampMixin, UUIDMixin
 
 class Partner(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
- __tablename__="partners"; name:Mapped[str]=mapped_column(String(255),index=True); comment:Mapped[str|None]=mapped_column(Text)
- counterparties:Mapped[list["Counterparty"]]=relationship(back_populates="partner")
+ __tablename__="partners"; name:Mapped[str]=mapped_column(String(255),index=True); comment:Mapped[str|None]=mapped_column(Text); tag_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("tags.id",ondelete="SET NULL"),index=True)
+ counterparties:Mapped[list["Counterparty"]]=relationship(back_populates="partner"); tag:Mapped["Tag|None"]=relationship()
 class Counterparty(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
  __tablename__="counterparties"; partner_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("partners.id"),index=True,nullable=True); full_name:Mapped[str]=mapped_column(String(500)); short_name:Mapped[str|None]=mapped_column(String(255)); entity_type:Mapped[str]=mapped_column(String(30)); inn:Mapped[str|None]=mapped_column(String(12),index=True); kpp:Mapped[str|None]=mapped_column(String(9)); comment:Mapped[str|None]=mapped_column(Text); partner:Mapped[Partner|None]=relationship(back_populates="counterparties")
 class Tag(Base,UUIDMixin,TimestampMixin):
@@ -39,3 +39,10 @@ class AuditLog(Base,UUIDMixin):
  __tablename__="audit_log"; entity_type:Mapped[str]=mapped_column(String(50),index=True); entity_id:Mapped[uuid.UUID]=mapped_column(index=True); action:Mapped[str]=mapped_column(String(50)); field_name:Mapped[str|None]=mapped_column(String(100)); old_value:Mapped[str|None]=mapped_column(Text); new_value:Mapped[str|None]=mapped_column(Text); metadata_:Mapped[dict|None]=mapped_column("metadata",JSONB); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True))
 class SavedFilter(Base,UUIDMixin,TimestampMixin):
  __tablename__="saved_filters"; name:Mapped[str]=mapped_column(String(255),unique=True); filter_config:Mapped[dict]=mapped_column(JSONB)
+class SMTPSetting(Base,UUIDMixin,TimestampMixin):
+ __tablename__="smtp_settings"; host:Mapped[str]=mapped_column(String(255)); port:Mapped[int]=mapped_column(Integer); security:Mapped[str]=mapped_column(String(20)); username:Mapped[str|None]=mapped_column(String(255)); password_encrypted:Mapped[str|None]=mapped_column(Text); from_email:Mapped[str]=mapped_column(String(255)); from_name:Mapped[str|None]=mapped_column(String(255)); status:Mapped[str]=mapped_column(String(30),default="configured"); last_error:Mapped[str|None]=mapped_column(Text)
+class NotificationScenario(Base,UUIDMixin,TimestampMixin):
+ __tablename__="notification_scenarios"; code:Mapped[str]=mapped_column(String(50),unique=True); name:Mapped[str]=mapped_column(String(255)); enabled:Mapped[bool]=mapped_column(Boolean,default=False); subject_template:Mapped[str]=mapped_column(String(500)); body_template:Mapped[str]=mapped_column(Text); recipients:Mapped[list]=mapped_column(JSONB,default=list)
+class NotificationLog(Base,UUIDMixin):
+ __tablename__="notification_logs"; notification_type:Mapped[str]=mapped_column(String(30),index=True); status:Mapped[str]=mapped_column(String(20),index=True); recipients:Mapped[list]=mapped_column(JSONB); subject:Mapped[str]=mapped_column(String(500)); body:Mapped[str]=mapped_column(Text); error:Mapped[str|None]=mapped_column(Text); expense_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("expenses.id"),index=True); document_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("documents.id"),index=True); invoice_id:Mapped[uuid.UUID|None]=mapped_column(ForeignKey("invoices.id"),index=True); original_filename:Mapped[str|None]=mapped_column(String(500)); attachment_present:Mapped[bool]=mapped_column(Boolean,default=False); attachment_size:Mapped[int|None]=mapped_column(Integer); created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),index=True)
+ __table_args__=(UniqueConstraint("notification_type","document_id",name="uq_notification_document_event"),)
