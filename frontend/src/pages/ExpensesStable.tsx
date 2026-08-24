@@ -39,7 +39,23 @@ export function Expenses() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const { data, error, loading } = useExpenses(search, page, revision);
+  const filters = useMemo(() => ({
+    search,
+    period: '',
+    payment_status: 'all',
+    partner_ids: [],
+    counterparty_ids: [],
+    store_ids: [],
+    tag_ids: [],
+    amount_from: '',
+    amount_to: '',
+    invoice_date_from: '',
+    invoice_date_to: '',
+    invoice_document: 'all',
+    closing_document: 'all',
+  }), [search]);
+
+  const { data, error, loading } = useExpenses(filters, page, revision);
 
   useEffect(() => {
     Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Tag[]>('/tags')])
