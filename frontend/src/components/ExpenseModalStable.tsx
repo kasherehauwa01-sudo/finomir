@@ -11,6 +11,52 @@ type Allocation = { store_id: string; amount: string };
 
 const today = new Date().toISOString().slice(0, 10);
 
+export const singleExpenseTag = (_current: string[], tagId: string) => [tagId];
+export const invoiceAmountForSubmission = (invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) => invoicePayment ? invoiceAmount : paymentAmount;
+
+type SearchOption = { id: string; label: string; search: string };
+export const filterSearchOptions = (options: SearchOption[], search: string, selectedId: string) => {
+  const term = search.trim().toLowerCase();
+  return options.filter((item) => !term || item.search.toLowerCase().includes(term) || item.id === selectedId);
+};
+
+function SearchSelect({ label, value, placeholder, searchPlaceholder, options, onChange }: {
+  label: string;
+  value: string;
+  placeholder: string;
+  searchPlaceholder: string;
+  options: SearchOption[];
+  onChange: (id: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const details = useRef<HTMLDetailsElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const visibleOptions = filterSearchOptions(options, search, value);
+  const selected = options.find((item) => item.id === value);
+
+  function select(id: string) {
+    onChange(id);
+    if (details.current) details.current.open = false;
+  }
+
+  return <div className="search-select-label">
+    <span>{label}</span>
+    <details className="search-select" ref={details} onToggle={(event) => {
+      if (event.currentTarget.open) setTimeout(() => searchInput.current?.focus());
+      else setSearch('');
+    }}>
+      <summary>{selected?.label || placeholder}</summary>
+      <div className="search-select-dropdown">
+        <input ref={searchInput} type="search" aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={search} onChange={(event) => setSearch(event.target.value)} />
+        <div className="search-select-options" role="listbox">
+          {visibleOptions.map((item) => <button type="button" role="option" aria-selected={item.id === value} className={item.id === value ? 'selected' : ''} key={item.id} onClick={() => select(item.id)}>{item.label}</button>)}
+          {!visibleOptions.length && <small>Ничего не найдено</small>}
+        </div>
+      </div>
+    </details>
+  </div>;
+}
+
 export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [mode, setMode] = useState<'choice' | 'ocr' | 'manual'>('choice');
   const [message, setMessage] = useState('');
@@ -36,7 +82,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [hasPayment, setHasPayment] = useState(false);
+  const [invoicePayment, setInvoicePayment] = useState(true);
+  const [paymentDate, setPaymentDate] = useState(today);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const cameraInput = useRef<HTMLInputElement>(null);
 
@@ -125,6 +172,14 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!partnerId) {
+      setMessage('Выберите партнера.');
+      return;
+    }
+    if (!counterpartyId && (!ocrReviewed || !recipient.trim())) {
+      setMessage('Выберите контрагента.');
+      return;
+    }
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
@@ -152,21 +207,26 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           tag_ids: tagIds,
         }),
       });
-      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
-      if (invoiceAmount) {
+      const submittedInvoiceAmount = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
+      if (submittedInvoiceAmount) {
         const invoice = await api<{ id: string }>(`/expenses/${expense.id}/invoices`, {
           method: 'POST',
           body: JSON.stringify({
-            invoice_number: invoiceNumber || 'Без номера', invoice_date: invoiceDate,
-            amount: invoiceAmount,
+            invoice_number: invoicePayment ? invoiceNumber || 'Без номера' : 'Наличные',
+            invoice_date: invoicePayment ? invoiceDate : paymentDate,
+            amount: submittedInvoiceAmount,
+            allow_duplicate: !invoicePayment,
           }),
         });
-        if (hasPayment && paymentAmount) {
+        if (paymentAmount) {
           await api(`/invoices/${invoice.id}/payments`, {
-            method: 'POST', body: JSON.stringify({ payment_date: today, amount: paymentAmount }),
+            method: 'POST', body: JSON.stringify({ payment_date: paymentDate, amount: paymentAmount }),
           });
         }
       }
+      // Сначала сохраняем счет и платеж, и только затем прикрепляем OCR-документ:
+      // endpoint прикрепления запускает уведомление уже с полными данными счета.
+      if (ocrDocumentId) await api(`/documents/${ocrDocumentId}/expense/${expense.id}`, { method: 'PUT' });
       onSaved();
       close();
     } catch (error) {
@@ -189,7 +249,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   }
 
   function toggleTag(tagId: string) {
-    setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
+    setTagIds((current) => singleExpenseTag(current, tagId));
   }
 
   return <div className="overlay" role="dialog" aria-modal="true">
@@ -208,17 +268,18 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
-        <label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); }}><option value="">Выберите партнера</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map((item) => ({ id: item.id, label: item.name, search: item.name }))} onChange={(id) => { setPartnerId(id); setCounterpartyId(''); }} />
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
-        <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
+        <SearchSelect label="Контрагент" value={counterpartyId} placeholder={ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'} searchPlaceholder="Поиск по названию или ИНН" options={availableCounterparties.map((item) => ({ id: item.id, label: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} onChange={setCounterpartyId} />
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
-          <label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
-          <label className="switch-field"><input type="checkbox" checked={hasPayment} onChange={(event) => { const checked = event.target.checked; setHasPayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
-          {hasPayment && <label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
+          <label className="switch-field invoice-payment-switch"><input type="checkbox" checked={invoicePayment} onChange={(event) => { const checked = event.target.checked; setInvoicePayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
+          {invoicePayment ? <>
+            <div className="row"><label>№ счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+            <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
+          </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
           {!!stores.length && <button type="button" className="link select-all-stores" onClick={toggleAllStores}>{allocations.length === stores.length ? 'Снять выбор' : 'Выбрать все'}</button>}
@@ -226,6 +287,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         </fieldset>
         <fieldset><legend>Теги</legend>
           <div className="store-tags">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button type="button" aria-pressed={selected} className={`relation-chip ${selected ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggleTag(tag.id)}>{tag.name}</button>; })}</div>
+          {!!tags.length && <small>Для расхода можно выбрать только один тег.</small>}
           {!tags.length && <small>В справочнике пока нет тегов.</small>}
         </fieldset>
         <div className="modal-actions"><button type="button" onClick={requestClose}>Закрыть</button><button className="primary" disabled={busy}>Сохранить расход</button></div>
