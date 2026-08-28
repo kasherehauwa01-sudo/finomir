@@ -21,7 +21,6 @@ export function Layout() {
         <NavLink to="/expenses"><span aria-hidden="true">₽</span><b>Расходы</b></NavLink>
         <NavLink to="/directories"><span aria-hidden="true">▦</span><b>Справочники</b></NavLink>
         <NavLink to="/settings"><span aria-hidden="true">⚙</span><b>Настройки</b></NavLink>
-        <NavLink to="/recognition-journal"><span aria-hidden="true">◎</span><b>Журнал</b></NavLink>
       </nav>
     </>
   );
