@@ -34,6 +34,9 @@ cd frontend && npm install && npm test && npm run build
 
 Переменные: `OCR_PROVIDER`, `OCR_SERVICE_URL`, `OCR_TIMEOUT_SECONDS`. Диагностика: `docker compose logs ocr`, `docker compose exec ocr python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8001/health').read())"`.
 
+## Уведомления бухгалтерии
+После создания счета Finomir отправляет письмо, если к расходу уже прикреплен документ типа `invoice` и настроены `SMTP_HOST`, `SMTP_FROM`, `ACCOUNTING_EMAIL_TO`. К письму прикладывается оригинальный счет. Для магазина `Интернет (w)` текст автоматически адресует платеж ИП Куприяновой О.В.; для остальных расходов перечисляются выбранные магазины. SMTP-пароль хранится только в `.env` и не добавляется в Git.
+
 ## Excel
 Экспорт использует одну строку на счет с повторением человекочитаемых данных расхода; расход без счета также получает строку, поэтому данные не теряются.
 
