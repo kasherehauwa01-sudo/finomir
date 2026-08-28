@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     smtp_timeout_seconds: int = 20
     accounting_email_to: str = ""
-    ai_settings_encryption_key: str = ""
-    openai_timeout_seconds: int = 45
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @field_validator("base_path")
     @classmethod
