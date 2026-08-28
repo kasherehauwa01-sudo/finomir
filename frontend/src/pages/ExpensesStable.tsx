@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { ExpenseModal } from '../components/ExpenseModal';
+import { ExpenseModal } from '../components/ExpenseModalStable';
 import { useExpenses } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
