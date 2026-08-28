@@ -1,5 +1,6 @@
 # Финомир — финансы отдела маркетинга
 
+Резервное распознавание через OpenAI настраивается в разделе «Настройки → API ИИ». Оно запускается только при неполном результате основного OCR; проблемные случаи сохраняются в «Журнале распознавания» для последующего улучшения собственного парсера.
 Production-oriented modular monolith для учета цепочки **партнер → контрагент → расход → счет → платежи**. Денежные значения обрабатываются `Decimal`/`NUMERIC(15,2)`, документы находятся вне PostgreSQL в persistent volume.
 
 Целевой production URL: **https://kvasmix.ru/vr/finomir/**.
@@ -27,10 +28,21 @@ cd backend && python -m pip install -e '.[test]' && pytest
 cd frontend && npm install && npm test && npm run build
 ```
 
-## OCR
-`OCRProvider` изолирует провайдера. По умолчанию `OCR_PROVIDER=disabled`: файл безопасно сохраняется, а пользователь получает ручную форму проверки. Секрет провайдера передается только через backend environment. PDF-провайдер может сначала применять `pypdf` для текстового слоя.
+## OCR счетов
+`OCRProvider` сохранен как граница backend. При `OCR_PROVIDER=paddle` backend передает изображение только внутреннему сервису `ocr` (`OCR_SERVICE_URL=http://ocr:8001`), где русская модель PaddleOCR загружается один раз при старте. Порт OCR на host не публикуется. Оригинал остается в volume uploads, а временная копия получает EXIF-ориентацию, ограничение 3000×3000, grayscale, контраст, резкость и умеренный deskew.
+
+Текст независимо обрабатывает `RussianInvoiceParser`: он определяет номер/дату счета, итоговую сумму через `Decimal`, поставщика и ИНН с проверкой контрольных цифр. Raw text, блоки с координатами, значения и confidence сохраняются в `ocr_results`. По точному ИНН выполняется поиск существующего контрагента; записи расходов и контрагентов OCR не создает. `POST /api/documents/{id}/recognize` позволяет повторить обработку. При `OCR_PROVIDER=disabled` остается ручной сценарий.
+
+Переменные: `OCR_PROVIDER`, `OCR_SERVICE_URL`, `OCR_TIMEOUT_SECONDS`. Диагностика: `docker compose logs ocr`, `docker compose exec ocr python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8001/health').read())"`.
+
+## Уведомления бухгалтерии
+После создания счета Finomir отправляет письмо, если к расходу уже прикреплен документ типа `invoice` и настроены `SMTP_HOST`, `SMTP_FROM`, `ACCOUNTING_EMAIL_TO`. К письму прикладывается оригинальный счет. Для магазина `Интернет (w)` текст автоматически адресует платеж ИП Куприяновой О.В.; для остальных расходов перечисляются выбранные магазины. SMTP-пароль хранится только в `.env` и не добавляется в Git.
 
 ## Excel
 Экспорт использует одну строку на счет с повторением человекочитаемых данных расхода; расход без счета также получает строку, поэтому данные не теряются.
 
 Deployment, Nginx, backup и restore описаны в [DEPLOY.md](DEPLOY.md).
+
+Если сборка завершается сообщением `lookup registry-1.docker.io ... server misbehaving`, это сбой DNS production-хоста. `scripts/update.sh` проверяет Docker Hub до сборки, повторяет временно неудачную сборку и не останавливает работающие контейнеры при ошибке. Пошаговая диагностика приведена в разделе `Docker Hub: server misbehaving` файла `DEPLOY.md`.
+
+Если Docker обращается к IPv6-адресу Registry и получает `network is unreachable`, на сервере опубликованы AAAA-записи, но отсутствует рабочий IPv6 default route. Update script отдельно проверяет IPv4 HTTPS и выявляет такую конфигурацию до сборки; варианты исправления описаны в `DEPLOY.md`.
