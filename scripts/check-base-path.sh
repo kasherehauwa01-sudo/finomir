@@ -18,5 +18,8 @@ check_contains deploy/nginx-location.conf "location $expected"
 check_contains deploy/nginx-location.conf 'location /vr/finomir/api/'
 check_contains frontend/public/manifest.webmanifest '"start_url":"./"'
 check_contains frontend/public/manifest.webmanifest '"scope":"./"'
+check_contains frontend/public/sw.js "self.skipWaiting()"
+check_contains frontend/public/sw.js "self.clients.claim()"
+check_contains frontend/nginx.conf "location = /sw.js"
 
 echo "Base path $expected согласован для env, Nginx и PWA."
