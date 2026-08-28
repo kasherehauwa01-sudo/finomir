@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { ExpenseModal } from '../components/ExpenseModal';
-import { useExpenses } from '../hooks/useExpenses';
+import { ExpenseModal } from '../components/ExpenseModalStable';
+import { useExpenseRegistry } from '../hooks/useExpenses';
 import type { Counterparty, Partner, Tag } from '../types';
 import { money } from '../utils/format';
 
@@ -39,7 +39,7 @@ export function Expenses() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const { data, error, loading } = useExpenses(search, page, revision);
+  const { data, error, loading } = useExpenseRegistry(search, page, revision);
 
   useEffect(() => {
     Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Tag[]>('/tags')])

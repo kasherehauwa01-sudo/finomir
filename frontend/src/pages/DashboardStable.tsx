@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ExpenseModal } from '../components/ExpenseModal';
+import { ExpenseModal } from '../components/ExpenseModalStable';
 import { api } from '../api/client';
 import type { DashboardSummary, Store, Tag } from '../types';
 import { money } from '../utils/format';
