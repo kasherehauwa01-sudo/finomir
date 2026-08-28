@@ -14,9 +14,11 @@ export function useExpenseRegistry(search: string, page: number, revision = 0) {
   useEffect(() => {
     setLoading(true);
     setError('');
-    api<Page<Expense>>(`/expenses?page=${page}&page_size=25&search=${encodeURIComponent(search)}`)
-      .then(setData).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false));
-  }, [search, page, revision]);
+    api<Page<Expense>>(`/expenses?${buildExpenseQuery(filters, page, sort)}`)
+      .then(setData)
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setLoading(false));
+  }, [filters, page, revision, sort]);
   return { data, error, loading };
 }
 
