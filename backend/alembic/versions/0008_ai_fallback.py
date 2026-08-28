@@ -3,8 +3,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision = "0005"
-down_revision = "0004"
+revision = "0008"
+down_revision = "0007"
 
 def upgrade():
     op.create_table("ai_settings", sa.Column("id", sa.Integer(), primary_key=True), sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.false()), sa.Column("model", sa.String(100), nullable=False, server_default="gpt-4.1-mini"), sa.Column("encrypted_api_key", sa.Text()), sa.Column("connection_status", sa.String(30), nullable=False, server_default="not_checked"), sa.Column("connection_error", sa.String(500)), sa.Column("checked_at", sa.DateTime(timezone=True)), sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False))
