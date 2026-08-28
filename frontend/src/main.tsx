@@ -8,7 +8,7 @@ import { DirectoryCard } from './pages/DirectoryCardStable';
 import { Expenses } from './pages/ExpensesStable';
 import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
-import { APP_PATHS } from './config/navigation';
+import { RecognitionJournal } from './pages/RecognitionJournal';
 import './styles.css';
 
 declare const __BASE_PATH__: string;
@@ -18,14 +18,15 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter basename={__BASE_PATH__}>
       <Routes>
         <Route element={<Layout />}>
-          <Route path={APP_PATHS.dashboard} element={<Dashboard />} />
-          <Route path={APP_PATHS.expenses} element={<Expenses />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/expenses" element={<Expenses />} />
           <Route path="/expenses/:expenseId" element={<ExpenseCard />} />
-          <Route path={APP_PATHS.directories} element={<Directories />} />
+          <Route path="/directories" element={<Directories />} />
           <Route path="/directories/:directory" element={<Directories />} />
           <Route path="/directories/:directory/:itemId" element={<DirectoryCard />} />
-          <Route path={APP_PATHS.partners} element={<Directories />} />
-          <Route path={APP_PATHS.settings} element={<Settings />} />
+          <Route path="/partners" element={<Directories />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/recognition-journal" element={<RecognitionJournal />} />
         </Route>
       </Routes>
     </BrowserRouter>
