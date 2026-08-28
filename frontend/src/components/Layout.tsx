@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 export function Layout() {
+  const location = useLocation();
   return (
     <>
       <header>
@@ -12,7 +13,7 @@ export function Layout() {
           <NavLink to="/recognition-journal">Журнал распознавания</NavLink>
         </nav>
       </header>
-      <main>
+      <main className={location.pathname === '/expenses' ? 'expenses-wide' : undefined}>
         <Outlet />
       </main>
       <nav className="mobile-nav" aria-label="Мобильная навигация">

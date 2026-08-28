@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api as requestApi } from '../api/client';
 import type { AISettings } from '../types';
 import { copyText } from '../utils/clipboard';
+import { api } from '../api/client';
+import type { ExpenseImportResult } from '../types';
 
 const UPDATE_SCRIPT_PATH = '/var/www/html/vr/update_finomir.sh';
 type Tab = 'system' | 'ai';
