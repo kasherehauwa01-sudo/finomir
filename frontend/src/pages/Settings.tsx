@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api as requestApi } from '../api/client';
 import type { AISettings } from '../types';
 import { copyText } from '../utils/clipboard';
 import { api } from '../api/client';
@@ -12,9 +12,9 @@ export function Settings() {
   const [tab,setTab]=useState<Tab>('system'); const [settings,setSettings]=useState<AISettings|null>(null);
   const [enabled,setEnabled]=useState(false); const [model,setModel]=useState('gpt-4.1-mini'); const [apiKey,setApiKey]=useState(''); const [message,setMessage]=useState(''); const [busy,setBusy]=useState(false);
   const [copied,setCopied]=useState(false); const timer=useRef<number | undefined>(undefined);
-  useEffect(()=>{api<AISettings>('/settings/ai').then((x)=>{setSettings(x);setEnabled(x.enabled);setModel(x.model);}).catch((e:Error)=>setMessage(e.message));return()=>window.clearTimeout(timer.current);},[]);
-  async function save(event:FormEvent){event.preventDefault();setBusy(true);setMessage('');try{const x=await api<AISettings>('/settings/ai',{method:'PUT',body:JSON.stringify({enabled,model,api_key:apiKey||null})});setSettings(x);setApiKey('');setMessage('Настройки сохранены');}catch(e){setMessage(e instanceof Error?e.message:'Не удалось сохранить настройки');}finally{setBusy(false);}}
-  async function test(){setBusy(true);setMessage('');try{const x=await api<{message:string}>('/settings/ai/test',{method:'POST'});setMessage(x.message);const current=await api<AISettings>('/settings/ai');setSettings(current);}catch(e){setMessage(e instanceof Error?e.message:'Ошибка подключения');}finally{setBusy(false);}}
+  useEffect(()=>{requestApi<AISettings>('/settings/ai').then((x)=>{setSettings(x);setEnabled(x.enabled);setModel(x.model);}).catch((e:Error)=>setMessage(e.message));return()=>window.clearTimeout(timer.current);},[]);
+  async function save(event:FormEvent){event.preventDefault();setBusy(true);setMessage('');try{const x=await requestApi<AISettings>('/settings/ai',{method:'PUT',body:JSON.stringify({enabled,model,api_key:apiKey||null})});setSettings(x);setApiKey('');setMessage('Настройки сохранены');}catch(e){setMessage(e instanceof Error?e.message:'Не удалось сохранить настройки');}finally{setBusy(false);}}
+  async function test(){setBusy(true);setMessage('');try{const x=await requestApi<{message:string}>('/settings/ai/test',{method:'POST'});setMessage(x.message);const current=await requestApi<AISettings>('/settings/ai');setSettings(current);}catch(e){setMessage(e instanceof Error?e.message:'Ошибка подключения');}finally{setBusy(false);}}
   async function copyPath(){await copyText(UPDATE_SCRIPT_PATH);setCopied(true);window.clearTimeout(timer.current);timer.current=window.setTimeout(()=>setCopied(false),2500);}
   return <><div className="page-head"><div><h1>Настройки</h1><p>Системные параметры и интеграции</p></div></div>
     <div className="settings-tabs"><button className={tab==='system'?'active':''} onClick={()=>setTab('system')}>Система</button><button className={tab==='ai'?'active':''} onClick={()=>setTab('ai')}>API ИИ</button></div>
