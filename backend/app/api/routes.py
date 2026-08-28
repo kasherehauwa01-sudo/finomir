@@ -2,6 +2,7 @@ from datetime import date,datetime,timezone
 import logging
 from decimal import Decimal
 from io import BytesIO
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter,Depends,File,HTTPException,Query,UploadFile
@@ -13,8 +14,9 @@ from sqlalchemy.orm import Session,selectinload
 from app.config import get_settings
 from app.database import get_db
 from app.models import *
-from app.repositories.expenses import ExpenseRepository
-from app.services.finance import expense_totals,invoice_totals
+from app.repositories.expenses import ExpenseFilters,ExpenseRepository
+from app.services.finance import distribute_evenly,expense_totals,invoice_totals
+from app.services.expense_import import import_expenses_excel
 from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
@@ -29,7 +31,10 @@ class ExpenseBulkUpdateIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1)
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
+class StorePresetIn(BaseModel): name:str=Field(min_length=1,max_length=255); store_ids:list[UUID]=Field(min_length=1)
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
+class AISettingsIn(BaseModel): enabled:bool; model:str=Field(min_length=1,max_length=100); api_key:str|None=None
+class AILogStatusIn(BaseModel): status:str=Field(pattern="^(new|prompt_copied|in_progress|fixed|no_fix_required)$")
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
@@ -145,12 +150,23 @@ def expenses(page:int=Query(1,ge=1),page_size:int=Query(25,ge=25,le=100),search:
  for x in items:
   it,paid,remaining=expense_totals([(i.amount,[p.amount for p in i.payments if not p.deleted_at]) for i in x.invoices if not i.deleted_at]); document_types=documents_by_expense[x.id]; out.append({"id":x.id,"partner":x.partner.name,"counterparty":x.counterparty.full_name,"stores":[a.store.name for a in x.allocations],"tags":[t.name for t in x.tags],"has_invoice_document":"invoice" in document_types,"has_closing_document":"closing" in document_types,"service_name":x.service_name,"period":f"{x.expense_month:02d}.{x.expense_year}","invoice_total":it,"paid_total":paid,"remaining_total":remaining,"updated_at":x.updated_at})
  return {"items":out,"total":total,"page":page,"page_size":page_size}
+@router.get("/expenses/ids")
+def expense_ids(search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-9]|1[0-2])\.(20\d{2}|21\d{2})$"),payment_status:Literal["all","paid","unpaid"]="all",partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),tag_ids:list[UUID]=Query(default=[]),amount_from:Decimal|None=Query(None,ge=0),amount_to:Decimal|None=Query(None,ge=0),invoice_date_from:date|None=None,invoice_date_to:date|None=None,invoice_document:Literal["all","yes","no","cash"]="all",closing_document:Literal["all","yes","no"]="all",db:Session=Depends(get_db)):
+ if amount_from is not None and amount_to is not None and amount_from>amount_to: raise HTTPException(422,"Минимальная сумма не может быть больше максимальной")
+ if invoice_date_from and invoice_date_to and invoice_date_from>invoice_date_to: raise HTTPException(422,"Дата счета от не может быть позже даты счета до")
+ month,year=(map(int,period.split(".")) if period else (None,None))
+ filters=ExpenseFilters(search=search,expense_month=month,expense_year=year,payment_status=payment_status,partner_ids=tuple(partner_ids),counterparty_ids=tuple(counterparty_ids),store_ids=tuple(store_ids),tag_ids=tuple(tag_ids),amount_from=amount_from,amount_to=amount_to,invoice_date_from=invoice_date_from,invoice_date_to=invoice_date_to,invoice_document=invoice_document,closing_document=closing_document)
+ return {"ids":ExpenseRepository(db).ids(filters)}
 @router.post("/expenses",status_code=201)
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id) or not db.get(Counterparty,data.counterparty_id): raise HTTPException(422,"Партнер или контрагент не найден")
  if any(not db.get(Store,item.store_id) for item in data.allocations): raise HTTPException(422,"Магазин не найден")
  values=data.model_dump(exclude={"allocations","tag_ids"}); x=Expense(**values); x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]; db.add(x); db.flush()
  for item in data.allocations: db.add(Allocation(expense_id=x.id,**item.model_dump()))
+ if data.ai_log_id:
+  ai_log=db.get(AIFallbackLog,data.ai_log_id)
+  if ai_log and ai_log.expense_id is None:
+   ai_log.expense_id=x.id; ai_log.final_fields={**ai_log.final_fields,"partner":{"id":str(data.partner_id),"value":db.get(Partner,data.partner_id).name,"source":"manual"},"counterparty":{"id":str(data.counterparty_id),"value":db.get(Counterparty,data.counterparty_id).full_name,"source":"manual"},"service_name":{"value":data.service_name,"source":"manual"}}; ai_log.updated_at=datetime.now(timezone.utc)
  db.add(AuditLog(entity_type="expense",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
 @router.put("/expenses/bulk/update")
 def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
@@ -297,3 +313,14 @@ def export(db:Session=Depends(get_db)):
   for i in e.invoices or [None]:
    paid,remain=invoice_totals(i.amount,[p.amount for p in i.payments if not p.deleted_at]) if i else (Decimal(0),Decimal(0)); ws.append([f"{e.expense_month:02d}.{e.expense_year}",e.partner.name,e.counterparty.full_name,e.counterparty.inn,e.service_name,e.contract_number,i.invoice_number if i else "",i.invoice_date if i else "",i.amount if i else 0,paid,remain])
  stream=BytesIO(); wb.save(stream); stream.seek(0); return StreamingResponse(stream,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":"attachment; filename=expenses.xlsx"})
+
+@router.post("/expenses/import-xlsx")
+async def import_expenses(file:UploadFile=File(...),db:Session=Depends(get_db)):
+ filename=file.filename or ""
+ if not filename.lower().endswith((".xlsx",".xls")):
+  raise HTTPException(422,"Выберите файл в формате XLSX или XLS")
+ data=await file.read()
+ if not data: raise HTTPException(422,"Файл пуст")
+ try: return import_expenses_excel(data,filename,db)
+ except ValueError as error:
+  db.rollback(); raise HTTPException(422,str(error)) from error
