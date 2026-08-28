@@ -79,12 +79,14 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
+      setServiceName(response.fields.service_name.value ?? '');
       const counterparty = counterparties.find((item) => item.id === response.counterparty.id);
       if (counterparty?.partner_id) {
         setCounterpartyId(counterparty.id);
         setPartnerId(counterparty.partner_id);
       }
-      setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
+      if (response.partner.id) setPartnerId(response.partner.id);
+      setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : `Контрагент не сопоставлен${response.counterparty.suggestion ? ` (распознано: ${response.counterparty.suggestion})` : ''}. Выберите запись вручную.`);
       setOcrReviewed(true);
       setMode('manual');
     } catch (error) {
@@ -128,21 +130,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
-      let selectedCounterpartyId = counterpartyId;
-      if (!selectedCounterpartyId && ocrReviewed && partnerId && recipient.trim()) {
-        const digits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
-        const existing = counterparties.find((item) => item.partner_id === partnerId && digits(item.inn) === digits(inn) && digits(inn));
-        if (existing) selectedCounterpartyId = existing.id;
-        else {
-          const created = await api<Counterparty>('/counterparties', {
-            method: 'POST',
-            body: JSON.stringify({ partner_id: partnerId, full_name: recipient.trim(), entity_type: recipient.trim().toUpperCase().startsWith('ИП ') ? 'entrepreneur' : 'company', inn: inn.trim() || null, kpp: kpp.trim() || null }),
-          });
-          setCounterparties((current) => [...current, created]);
-          setCounterpartyId(created.id);
-          selectedCounterpartyId = created.id;
-        }
-      }
+      const selectedCounterpartyId = counterpartyId;
       const expense = await api<{ id: string }>('/expenses', {
         method: 'POST',
         body: JSON.stringify({
@@ -192,6 +180,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setTagIds((current) => current.includes(tagId) ? current.filter((item) => item !== tagId) : [...current, tagId]);
   }
 
+
   return <div className="overlay" role="dialog" aria-modal="true">
     <section className={`modal expense-modal ${mode === 'manual' && ocrReviewed && preview ? 'ocr-completion' : ''}`}>
       <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
@@ -210,13 +199,13 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
         <label>Партнер<select required value={partnerId} onChange={(event) => { setPartnerId(event.target.value); setCounterpartyId(''); }}><option value="">Выберите партнера</option>{partners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
-        <label>Контрагент<select required={!ocrReviewed || !recipient.trim()} value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">{ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'}</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
+        <label>Контрагент<select required value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="">Выберите контрагента</option>{availableCounterparties.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}</select></label>
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
         <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
-          <div className="row"><label>Номер счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
-          <label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
+          <div className="row"><label>Номер счета<input required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
+          <label>Сумма счета<input required type="number" min="0.01" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label>
           <label className="switch-field"><input type="checkbox" checked={hasPayment} onChange={(event) => { const checked = event.target.checked; setHasPayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>
           {hasPayment && <label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>}
         </fieldset>
