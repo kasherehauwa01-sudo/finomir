@@ -156,6 +156,17 @@ SMTP_TIMEOUT_SECONDS=20
 ACCOUNTING_EMAIL_TO=accounting@example.ru
 ```
 
+### Резервное распознавание OpenAI
+
+OpenAI не заменяет PaddleOCR и вызывается только при неполном результате основного распознавания. Перед сохранением API-ключа через «Настройки → API ИИ» задайте в `.env` отдельную случайную серверную фразу:
+
+```env
+AI_SETTINGS_ENCRYPTION_KEY=replace-with-a-long-random-server-secret
+OPENAI_TIMEOUT_SECONDS=45
+```
+
+Значение `AI_SETTINGS_ENCRYPTION_KEY` нельзя менять после сохранения API-ключа: оно используется для его шифрования. Сам OpenAI API-ключ хранится в PostgreSQL только в зашифрованном виде и никогда не возвращается frontend. После обновления выполните `docker compose run --rm backend alembic upgrade head` и пересоздайте backend-контейнер.
+
 Письмо отправляется после создания счета, если документ счета уже прикреплен к расходу. Ошибка SMTP записывается в `docker compose logs backend`, но не откатывает сохраненную финансовую запись. После изменения `.env` пересоздайте backend: `docker compose up -d --force-recreate backend`.
 
 ## Backup и restore

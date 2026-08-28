@@ -34,12 +34,6 @@ def test_accounting_message_for_internet_store_uses_entrepreneur():
  assert "Платеж относится к ИП Куприянова О.В.:" in message
  assert "Платеж относится к магазинам" not in message
 
-def test_ai_recognition_endpoints_are_removed():
- paths={route.path for route in router.routes}
- assert "/settings/ai" not in paths
- assert "/settings/ai/test" not in paths
- assert "/recognition-journal" not in paths
-
 @pytest.mark.parametrize(("text","number","invoice_date","amount"),[
  ('Счет № 123 от 15.08.2026\nИтого 12 500,00', '123','2026-08-15','12500.00'),
  ('Счёт № 123-45 от 15-08-2026\nВсего: 12500.00', '123-45','2026-08-15','12500.00'),

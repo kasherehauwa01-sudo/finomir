@@ -21,12 +21,15 @@ from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
 from app.services.notifications import accounting_message,send_accounting_email
+from app.services.ai_recognition import AIInvoiceRecognitionService, _error_details, assess_required
+from app.services.ai_settings import decrypt_api_key, encrypt_api_key, get_ai_settings, public_ai_settings
+from app.services.recognition_journal import FIELD_LABELS, codex_prompt
 router=APIRouter()
 logger=logging.getLogger(__name__)
 class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
-class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list)
+class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list); ai_log_id:UUID|None=None
 class ExpenseBulkUpdateIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); partner_id:UUID|None=None; counterparty_id:UUID|None=None; tag_ids:list[UUID]|None=None
 class InvoiceIn(BaseModel): invoice_number:str; invoice_date:date; amount:Decimal=Field(ge=0); vat_amount:Decimal|None=Field(default=None,ge=0); comment:str|None=None; allow_duplicate:bool=False
 class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comment:str|None=None
@@ -161,7 +164,7 @@ def expense_ids(search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id) or not db.get(Counterparty,data.counterparty_id): raise HTTPException(422,"Партнер или контрагент не найден")
  if any(not db.get(Store,item.store_id) for item in data.allocations): raise HTTPException(422,"Магазин не найден")
- values=data.model_dump(exclude={"allocations","tag_ids"}); x=Expense(**values); x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]; db.add(x); db.flush()
+ values=data.model_dump(exclude={"allocations","tag_ids","ai_log_id"}); x=Expense(**values); x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]; db.add(x); db.flush()
  for item in data.allocations: db.add(Allocation(expense_id=x.id,**item.model_dump()))
  if data.ai_log_id:
   ai_log=db.get(AIFallbackLog,data.ai_log_id)
@@ -200,7 +203,7 @@ def expense_detail(expense_id:UUID,db:Session=Depends(get_db)):
 def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x or x.deleted_at: raise HTTPException(404,"Расход не найден")
- for key,value in data.model_dump(exclude={"allocations","tag_ids"}).items(): setattr(x,key,value)
+ for key,value in data.model_dump(exclude={"allocations","tag_ids","ai_log_id"}).items(): setattr(x,key,value)
  existing={item.store_id:item for item in x.allocations}; selected={item.store_id:item for item in data.allocations}
  for store_id,allocation in list(existing.items()):
   if store_id not in selected: db.delete(allocation)
@@ -239,6 +242,9 @@ def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  dup=db.scalar(select(Invoice).join(Expense).join(Counterparty).where(Counterparty.inn==exp.counterparty.inn,func.lower(Invoice.invoice_number)==data.invoice_number.lower(),Invoice.invoice_date==data.invoice_date,Invoice.amount==data.amount,Invoice.deleted_at.is_(None)))
  if dup and not data.allow_duplicate: raise HTTPException(409,detail={"message":"Возможно, этот счет уже существует","invoice_id":str(dup.id),"expense_id":str(dup.expense_id)})
  x=Invoice(expense_id=expense_id,**data.model_dump(exclude={"allow_duplicate"})); db.add(x); db.flush(); db.add(AuditLog(entity_type="invoice",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc)))
+ ai_log=db.scalar(select(AIFallbackLog).where(AIFallbackLog.expense_id==expense_id).order_by(AIFallbackLog.created_at.desc()))
+ if ai_log:
+  ai_log.final_fields={**ai_log.final_fields,"invoice_number":{"value":data.invoice_number,"source":"manual"},"invoice_date":{"value":data.invoice_date.isoformat(),"source":"manual"},"amount":{"value":str(data.amount),"source":"manual"}}; ai_log.success=not bool(assess_required(ai_log.final_fields)); ai_log.updated_at=datetime.now(timezone.utc)
  db.commit()
  document=db.scalar(select(Document).where(Document.expense_id==expense_id,Document.document_type=="invoice",Document.deleted_at.is_(None)).order_by(Document.created_at.desc()))
  notification_sent=False
@@ -291,8 +297,11 @@ def _run_recognition(document:Document,db:Session):
  recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()
  partner=db.get(Partner,counterparty.partner_id) if counterparty and counterparty.partner_id else None
  primary={"partner":{"id":str(partner.id) if partner else None,"value":partner.name if partner else None,"matched":bool(partner),"confidence":.99 if partner else 0,"source":"original"},"counterparty":{"id":str(counterparty.id) if counterparty else None,"value":counterparty.full_name if counterparty else result.counterparty_name,"inn":result.inn,"matched":matched,"confidence":confidence["recipient"],"source":"original"},"service_name":{"value":result.service_name,"confidence":result.confidence.get("service_name",0),"source":"original"},"invoice_number":{"value":result.invoice_number,"confidence":confidence["invoice_number"],"source":"original"},"invoice_date":{"value":result.invoice_date,"confidence":confidence["invoice_date"],"source":"original"},"amount":{"value":str(result.invoice_amount) if result.invoice_amount is not None else None,"confidence":confidence["amount"],"source":"original"}}
- response_fields={"invoice_number":primary["invoice_number"],"invoice_date":primary["invoice_date"],"amount":primary["amount"],"recipient":{"value":primary["counterparty"].get("value"),"confidence":primary["counterparty"].get("confidence",0),"source":"original"},"inn":{"value":result.inn,"confidence":confidence["inn"],"source":"original"},"kpp":{"value":result.kpp,"confidence":confidence["kpp"],"source":"original"},"service_name":primary["service_name"]}
- return {"status":"success","document_id":document.id,"fields":response_fields,"partner":{"matched":bool(partner),"id":partner.id if partner else None,"name":partner.name if partner else None,"suggestion":None,"source":"original"},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else result.counterparty_name,"suggestion":None if matched else result.counterparty_name,"source":"original"},"raw_text":result.raw_text}
+ logger.info("Primary recognition completed for document %s",document.id)
+ merged,ai_log=AIInvoiceRecognitionService().supplement(db,document,primary)
+ db.commit()
+ response_fields={"invoice_number":merged["invoice_number"],"invoice_date":merged["invoice_date"],"amount":merged["amount"],"recipient":{"value":merged["counterparty"].get("value"),"confidence":merged["counterparty"].get("confidence",0),"source":merged["counterparty"].get("source","original")},"inn":{"value":merged["counterparty"].get("inn") or result.inn,"confidence":confidence["inn"],"source":merged["counterparty"].get("source","original")},"kpp":{"value":result.kpp,"confidence":confidence["kpp"],"source":"original"},"service_name":merged["service_name"]}
+ return {"status":"success","document_id":document.id,"fields":response_fields,"partner":{"matched":bool(merged["partner"].get("id")),"id":merged["partner"].get("id"),"name":merged["partner"].get("value"),"suggestion":None if merged["partner"].get("id") else merged["partner"].get("value"),"source":merged["partner"].get("source","original")},"counterparty":{"matched":bool(merged["counterparty"].get("id")),"id":merged["counterparty"].get("id"),"name":merged["counterparty"].get("value"),"suggestion":None if merged["counterparty"].get("id") else merged["counterparty"].get("value"),"source":merged["counterparty"].get("source","original")},"ai_fallback":{"used":bool(ai_log),"log_id":str(ai_log.id) if ai_log else None,"status":"success" if ai_log and ai_log.success else "partial" if ai_log else "not_needed","error":ai_log.error_message if ai_log else None},"raw_text":result.raw_text}
 @router.post("/ocr/invoice")
 @router.post("/ocr")
 async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):
@@ -306,6 +315,68 @@ def recognize_document(document_id:UUID,db:Session=Depends(get_db)):
  if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
  return _run_recognition(document,db)
 
+@router.get("/settings/ai")
+def ai_settings(db:Session=Depends(get_db)):
+ item=get_ai_settings(db); db.commit(); return public_ai_settings(item)
+
+@router.put("/settings/ai")
+def update_ai_settings(data:AISettingsIn,db:Session=Depends(get_db)):
+ item=get_ai_settings(db)
+ if data.api_key:
+  if not data.api_key.startswith("sk-"): raise HTTPException(422,"API-ключ OpenAI имеет неверный формат")
+  try: item.encrypted_api_key=encrypt_api_key(data.api_key)
+  except ValueError as error: raise HTTPException(503,str(error)) from error
+  item.connection_status="not_checked"; item.connection_error=None; item.checked_at=None
+ if data.enabled and not item.encrypted_api_key: raise HTTPException(422,"Сначала сохраните API-ключ OpenAI")
+ item.enabled=data.enabled; item.model=data.model.strip(); item.updated_at=datetime.now(timezone.utc); db.commit(); return public_ai_settings(item)
+
+@router.post("/settings/ai/test")
+def test_ai_connection(db:Session=Depends(get_db)):
+ item=get_ai_settings(db)
+ try:
+  key=decrypt_api_key(item.encrypted_api_key)
+  if not key: raise HTTPException(422,"API-ключ OpenAI не сохранен")
+  AIInvoiceRecognitionService().test_connection(key,item.model)
+  item.connection_status="connected"; item.connection_error=None
+ except HTTPException: raise
+ except ValueError as error: raise HTTPException(503,str(error)) from error
+ except Exception as error:
+  _,message=_error_details(error); item.connection_status="error"; item.connection_error=message; item.checked_at=datetime.now(timezone.utc); item.updated_at=item.checked_at; db.commit(); raise HTTPException(503,message) from error
+ item.checked_at=datetime.now(timezone.utc); item.updated_at=item.checked_at; db.commit(); return {"status":"connected","message":"Подключение успешно"}
+
+def _journal_item(item:AIFallbackLog,db:Session,include_details:bool=False):
+ document=db.get(Document,item.document_id); result={"id":item.id,"document_id":item.document_id,"expense_id":item.expense_id,"created_at":item.created_at,"invoice_number":item.final_fields.get("invoice_number",{}).get("value"),"invoice_date":item.final_fields.get("invoice_date",{}).get("value"),"counterparty":item.final_fields.get("counterparty",{}).get("value"),"missing_fields":item.missing_fields,"missing_labels":[FIELD_LABELS.get(x,x) for x in item.missing_fields],"reason":item.reason,"supplemented_fields":item.supplemented_fields,"success":item.success,"status":item.status,"model":item.model,"duration_ms":item.duration_ms,"error":item.error_message,"filename":document.original_filename if document else None}
+ if include_details: result.update({"primary_fields":item.primary_fields,"ai_fields":item.ai_fields,"final_fields":item.final_fields,"usage":item.usage,"request_id":item.request_id,"prompt":codex_prompt(item)})
+ return result
+
+@router.get("/recognition-journal")
+def recognition_journal(problem_field:str|None=None,result:str|None=Query(None,pattern="^(success|partial|error)$"),status:str|None=None,date_from:date|None=None,date_to:date|None=None,db:Session=Depends(get_db)):
+ q=select(AIFallbackLog).order_by(AIFallbackLog.created_at.desc())
+ if status: q=q.where(AIFallbackLog.status==status)
+ if date_from: q=q.where(AIFallbackLog.created_at>=datetime.combine(date_from,datetime.min.time(),tzinfo=timezone.utc))
+ if date_to: q=q.where(AIFallbackLog.created_at<datetime.combine(date_to,datetime.max.time(),tzinfo=timezone.utc))
+ items=db.scalars(q).all()
+ if problem_field: items=[x for x in items if problem_field in x.missing_fields]
+ if result=="success": items=[x for x in items if x.success]
+ elif result=="partial": items=[x for x in items if not x.success and not x.error_code]
+ elif result=="error": items=[x for x in items if x.error_code]
+ cutoff=datetime.now(timezone.utc).timestamp()-30*86400; summary={key:0 for key in FIELD_LABELS}
+ for item in items:
+  if item.created_at.timestamp()>=cutoff:
+   for key in item.missing_fields: summary[key]=summary.get(key,0)+1
+ return {"items":[_journal_item(x,db) for x in items],"summary":[{"field":key,"label":FIELD_LABELS.get(key,key),"count":count} for key,count in summary.items()]}
+
+@router.get("/recognition-journal/{item_id}")
+def recognition_journal_detail(item_id:UUID,db:Session=Depends(get_db)):
+ item=db.get(AIFallbackLog,item_id)
+ if not item: raise HTTPException(404,"Запись журнала не найдена")
+ return _journal_item(item,db,True)
+
+@router.put("/recognition-journal/{item_id}/status")
+def recognition_journal_status(item_id:UUID,data:AILogStatusIn,db:Session=Depends(get_db)):
+ item=db.get(AIFallbackLog,item_id)
+ if not item: raise HTTPException(404,"Запись журнала не найдена")
+ item.status=data.status; item.updated_at=datetime.now(timezone.utc); db.commit(); return {"status":item.status}
 @router.get("/export")
 def export(db:Session=Depends(get_db)):
  items,_=ExpenseRepository(db).list(1,100,None); wb=Workbook(); ws=wb.active; ws.title="Расходы"; ws.append(["Период","Партнер","Контрагент","ИНН","Услуга","Договор","Счет","Дата счета","Сумма","Оплачено","Остаток"])
