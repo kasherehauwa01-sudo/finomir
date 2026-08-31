@@ -14,6 +14,10 @@ type Allocation = { store_id: string; amount: string };
 const today = new Date().toISOString().slice(0, 10);
 
 export const singleExpenseTag = (_current: string[], tagId: string) => [tagId];
+export const partnerDefaultTagIds = (partners: Partner[], partnerId: string) => {
+  const tagId = partners.find((item) => item.id === partnerId)?.tag_id;
+  return tagId ? [tagId] : [];
+};
 export const invoiceAmountForSubmission = (invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) => invoicePayment ? invoiceAmount : paymentAmount;
 
 type SearchOption = { id: string; label: string; search: string };
@@ -137,6 +141,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       if (response.counterparty.matched && response.counterparty.id && response.partner.id) {
         setCounterpartyId(response.counterparty.id);
         setPartnerId(response.partner.id);
+        setTagIds(partnerDefaultTagIds(partners, response.partner.id));
       }
       setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
       setOcrReviewed(true);
@@ -160,6 +165,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setPartners((current) => [...current, item]);
     setPartnerId(item.id);
     setCounterpartyId('');
+    setTagIds(partnerDefaultTagIds([item], item.id));
   }
 
   async function createCounterparty() {
@@ -278,7 +284,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       {mode === 'manual' && <form className="completion-form" onSubmit={submit}>
         {message && <div className="notice">{message}</div>}
         {ocrReviewed && <section className="ocr-review"><h3>Проверьте распознанные данные</h3><div className="row"><label>Получатель<input value={recipient} onChange={(event) => setRecipient(event.target.value)} />{ocrConfidence.recipient < .7 && <small>⚠ Проверьте значение</small>}</label><label>ИНН<input value={inn} onChange={(event) => setInn(event.target.value)} />{ocrConfidence.inn < .7 && <small>⚠ Проверьте значение</small>}</label></div><label>КПП<input value={kpp} onChange={(event) => setKpp(event.target.value)} /></label></section>}
-        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map((item) => ({ id: item.id, label: item.name, search: item.name }))} onChange={(id) => { setPartnerId(id); setCounterpartyId(''); }} />
+        <SearchSelect label="Партнер" value={partnerId} placeholder="Выберите партнера" searchPlaceholder="Поиск партнера" options={partners.map((item) => ({ id: item.id, label: item.name, search: item.name }))} onChange={(id) => { setPartnerId(id); setCounterpartyId(''); setTagIds(partnerDefaultTagIds(partners, id)); }} />
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
         <SearchSelect label="Контрагент" value={counterpartyId} placeholder={ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'} searchPlaceholder="Поиск по названию или ИНН" options={availableCounterparties.map((item) => ({ id: item.id, label: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} onChange={setCounterpartyId} />
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
