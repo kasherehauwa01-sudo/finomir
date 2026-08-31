@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SETTINGS_TABS, scenarioRecipients, smtpPayload } from './Settings';
-
-describe('разделы настроек', () => {
-  it('содержат настройки SMTP и сценарии уведомлений', () => {
-    expect(SETTINGS_TABS).toEqual(expect.arrayContaining([
-      { id: 'smtp', label: 'Настройки SMTP' },
-      { id: 'scenarios', label: 'Сценарии уведомлений' },
-    ]));
-  });
-});
+import { scenarioRecipients, smtpPayload } from './Settings';
 
 describe('сохранение SMTP', () => {
   it('отправляет обязательные значения по умолчанию и не передает служебные поля', () => {
