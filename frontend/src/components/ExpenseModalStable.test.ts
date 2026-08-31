@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterSearchOptions, invoiceAmountForSubmission, singleExpenseTag } from './ExpenseModalStable';
+import { filterSearchOptions, invoiceAmountForSubmission, partnerDefaultTagIds, singleExpenseTag } from './ExpenseModalStable';
 
 describe('поиск в списках расхода', () => {
   const options = [
@@ -16,6 +16,11 @@ describe('поиск в списках расхода', () => {
 describe('выбор тега расхода', () => {
   it('заменяет предыдущий тег новым', () => {
     expect(singleExpenseTag(['tag-1'], 'tag-2')).toEqual(['tag-2']);
+  });
+
+  it('подставляет тег выбранного партнера', () => {
+    expect(partnerDefaultTagIds([{ id: 'partner-1', name: 'Партнер', tag_id: 'tag-1' }], 'partner-1')).toEqual(['tag-1']);
+    expect(partnerDefaultTagIds([{ id: 'partner-1', name: 'Партнер', tag_id: null }], 'partner-1')).toEqual([]);
   });
 });
 
