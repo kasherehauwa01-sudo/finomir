@@ -28,7 +28,7 @@ def notification_out(item):
  return {"created_at":item.created_at,"recipients":item.recipients,"status":item.status} if item else None
 def duplicate_invoice_query(invoice_number:str,amount:Decimal):
  return select(Invoice).join(Expense,Invoice.expense_id==Expense.id).where(func.lower(func.trim(Invoice.invoice_number))==invoice_number.strip().lower(),Invoice.amount==amount,Invoice.deleted_at.is_(None),Expense.deleted_at.is_(None))
-class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; counterparty_ids:list[UUID]|None=None
+class PartnerIn(BaseModel): name:str=Field(min_length=1,max_length=255); comment:str|None=None; tag_id:UUID|None=None; counterparty_ids:list[UUID]|None=None
 class CounterpartyIn(BaseModel): partner_id:UUID|None=None; full_name:str; short_name:str|None=None; entity_type:str; inn:str|None=None; kpp:str|None=None; comment:str|None=None
 class AllocationIn(BaseModel): store_id:UUID; amount:Decimal=Field(default=Decimal(0),ge=0)
 class ExpenseIn(BaseModel): partner_id:UUID; counterparty_id:UUID; service_name:str; expense_month:int=Field(ge=1,le=12); expense_year:int=Field(ge=2000,le=2200); contract_number:str|None=None; contract_date:date|None=None; comment:str|None=None; allocations:list[AllocationIn]=Field(default_factory=list); tag_ids:list[UUID]=Field(default_factory=list,max_length=1)
@@ -74,6 +74,7 @@ def partners(search:str|None=None,db:Session=Depends(get_db)):
  return db.scalars(q.order_by(Partner.name)).all()
 @router.post("/partners",status_code=201)
 def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
+ if data.tag_id and not db.get(Tag,data.tag_id): raise HTTPException(422,"Тег не найден")
  x=Partner(**data.model_dump(exclude={"counterparty_ids"})); db.add(x); db.flush()
  for item_id in data.counterparty_ids or []:
   item=db.get(Counterparty,item_id)
@@ -83,11 +84,12 @@ def create_partner(data:PartnerIn,db:Session=Depends(get_db)):
 def partner_detail(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
  if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
- return {"id":x.id,"name":x.name,"comment":x.comment,"counterparties":[{"id":item.id,"full_name":item.full_name,"inn":item.inn,"kpp":item.kpp} for item in x.counterparties if not item.deleted_at]}
+ return {"id":x.id,"name":x.name,"comment":x.comment,"tag_id":x.tag_id,"counterparties":[{"id":item.id,"full_name":item.full_name,"inn":item.inn,"kpp":item.kpp} for item in x.counterparties if not item.deleted_at]}
 @router.put("/partners/{item_id}")
 def update_partner(item_id:UUID,data:PartnerIn,db:Session=Depends(get_db)):
  x=db.get(Partner,item_id)
  if not x or x.deleted_at: raise HTTPException(404,"Партнер не найден")
+ if data.tag_id and not db.get(Tag,data.tag_id): raise HTTPException(422,"Тег не найден")
  for key,value in data.model_dump(exclude={"counterparty_ids"}).items(): setattr(x,key,value)
  if data.counterparty_ids is not None:
   selected=set(data.counterparty_ids)
@@ -226,10 +228,13 @@ def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
   selected_tags=db.scalars(select(Tag).where(Tag.id.in_(data.tag_ids or []))).all()
   if len(selected_tags)!=len(set(data.tag_ids or [])): raise HTTPException(422,"Один или несколько тегов не найдены")
  for expense in expenses:
-  if partner: expense.partner_id=partner.id
+  # Присваиваем сам объект связи, а не только внешний ключ. Так SQLAlchemy
+  # синхронизирует partner_id и уже загруженное отношение partner одновременно,
+  # и следующий ответ реестра не может вернуть старого партнера из identity map.
+  if partner: expense.partner=partner
   if counterparty:
-   expense.counterparty_id=counterparty.id
-   if "partner_id" not in fields and counterparty.partner_id: expense.partner_id=counterparty.partner_id
+   expense.counterparty=counterparty
+   if "partner_id" not in fields and counterparty.partner_id: expense.partner=counterparty.partner
   if selected_tags is not None: expense.tags=list(selected_tags)
   db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_updated",metadata_={"fields":sorted(fields)},created_at=datetime.now(timezone.utc)))
  db.commit(); return {"updated":len(expenses)}

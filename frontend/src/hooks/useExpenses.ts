@@ -37,12 +37,17 @@ export function useExpenses(filters: ExpenseFilters, page: number, revision = 0,
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    let active = true;
     setLoading(true);
     setError('');
     api<Page<Expense>>(`/expenses?${buildExpenseQuery(filters, page, sort)}`)
-      .then(setData)
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
+      .then((result) => { if (active) setData(result); })
+      .catch((reason: Error) => { if (active) setError(reason.message); })
+      .finally(() => { if (active) setLoading(false); });
+    // При массовом сохранении revision меняется сразу после ответа API. Старый
+    // запрос списка может завершиться позже нового и вернуть прежние значения,
+    // поэтому его результат больше не применяем к состоянию страницы.
+    return () => { active = false; };
   }, [filters, page, revision, sort]);
   return { data, error, loading };
 }
