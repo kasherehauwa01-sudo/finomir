@@ -5,7 +5,7 @@ import pytest
 from app.api.notifications import TestEmailIn as EmailTestInput, smtp_out, test_smtp as run_smtp_test
 from app.models import NotificationLog
 from app.services.email import EmailAttachment, send_email
-from app.services.notifications import render
+from app.services.notifications import DEFAULT_BODY, INTERNET_STORE_BODY, body_template_for_stores, render
 
 
 class SMTP:
@@ -48,6 +48,19 @@ def test_password_is_never_returned_by_smtp_api_serializer():
 
 def test_notification_template_variables():
     assert render("Счет {{invoice_number}}: {{stores}}",{"invoice_number":"15","stores":"- Магазин."})=="Счет 15: - Магазин."
+
+
+def test_internet_store_uses_sole_proprietor_notification_body():
+    template = body_template_for_stores(DEFAULT_BODY, ["Магазин", "Интернет (w)"])
+    body = render(template, {"service_name": "Реклама", "invoice_amount": "15 000,00"})
+
+    assert template == INTERNET_STORE_BODY
+    assert body == "Прошу переслать счет в бухгалтерию.\n\nУслуга: Реклама\nСумма счета: 15 000,00 ₽\n\nПлатеж относится к ИП Куприянова О.В.:\n\nСчет на оплату прикреплен к письму."
+
+
+def test_other_stores_keep_configured_notification_body():
+    configured = "Пользовательский шаблон: {{stores}}"
+    assert body_template_for_stores(configured, ["Офлайн-магазин"]) == configured
 
 
 class Db:
