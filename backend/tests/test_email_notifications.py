@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from app.api.notifications import TestEmailIn as EmailTestInput, smtp_out, test_smtp as run_smtp_test
 from app.models import NotificationLog
 from app.services.email import EmailAttachment, send_email
-from app.services.notifications import render
+from app.services.notifications import notify_new_invoice, render
 
 
 class SMTP:
@@ -48,6 +49,33 @@ def test_password_is_never_returned_by_smtp_api_serializer():
 
 def test_notification_template_variables():
     assert render("Счет {{invoice_number}}: {{stores}}",{"invoice_number":"15","stores":"- Магазин."})=="Счет 15: - Магазин."
+
+
+def test_failed_invoice_notification_is_retried_on_next_save(monkeypatch):
+    document = SimpleNamespace(id="document-id", document_type="invoice", expense_id="expense-id", original_filename="invoice.pdf", storage_path="/invoice.pdf", mime_type="application/pdf", file_size=10)
+    invoice = SimpleNamespace(id="invoice-id", amount=10, invoice_number="15", invoice_date=date(2026, 8, 31), deleted_at=None, created_at=datetime.now())
+    expense = SimpleNamespace(id="expense-id", service_name="Услуга", partner=SimpleNamespace(name="Партнер"), counterparty=SimpleNamespace(full_name="Контрагент"), allocations=[], invoices=[invoice])
+    scenario = SimpleNamespace(enabled=True, recipients=["user@example.test"], subject_template="Счет", body_template="Текст")
+    failed_log = SimpleNamespace(status="error")
+
+    class NotificationDb:
+        def __init__(self): self.scalars = iter((failed_log, scenario, expense, settings())); self.commits = 0
+        def scalar(self, _query): return next(self.scalars)
+        def get(self, _model, _id): return document
+        def add(self, _item): raise AssertionError("Существующий журнал не должен добавляться повторно")
+        def commit(self): self.commits += 1
+
+    sent = []
+    monkeypatch.setattr("app.services.notifications.load_attachment", lambda *_: EmailAttachment("invoice.pdf", "application/pdf", b"pdf"))
+    monkeypatch.setattr("app.services.notifications.send_email", lambda *args: sent.append(args))
+    db = NotificationDb()
+
+    notify_new_invoice(document.id, db)
+
+    assert len(sent) == 1
+    assert failed_log.status == "sent"
+    assert failed_log.error is None
+    assert db.commits == 1
 
 
 class Db:
