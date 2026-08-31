@@ -29,9 +29,12 @@ def test_save_triggers_notification_when_invoice_document_exists(monkeypatch):
     document = SimpleNamespace(id=uuid.uuid4())
     db = ResultDb(expense, document)
     called = []
-    monkeypatch.setattr("app.api.routes.notify_new_invoice", lambda document_id, current_db: called.append((document_id, current_db)))
+    def send(document_id, current_db):
+        called.append((document_id, current_db))
+        return {"status": "sent", "reason": None}
+    monkeypatch.setattr("app.api.routes.notify_new_invoice", send)
 
-    assert notify_expense_invoice(expense.id, db) == {"triggered": True}
+    assert notify_expense_invoice(expense.id, db) == {"triggered": True, "status": "sent", "reason": None}
     assert called == [(document.id, db)]
 
 
