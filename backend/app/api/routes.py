@@ -324,8 +324,8 @@ def update_payment(payment_id:UUID,data:PaymentIn,db:Session=Depends(get_db)):
  for key,value in data.model_dump().items(): setattr(x,key,value)
  db.commit(); return {"id":x.id}
 def _serialize_ocr(result:OCRResult):
- values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn,"kpp":result.kpp}
- confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0),"kpp":result.confidence.get("kpp",result.confidence.get("inn",0))}
+ values={"invoice_number":result.invoice_number,"invoice_date":result.invoice_date,"amount":str(result.invoice_amount) if result.invoice_amount is not None else None,"recipient":result.counterparty_name,"inn":result.inn,"kpp":result.kpp,"service_name":result.service_name}
+ confidence={"invoice_number":result.confidence.get("invoice_number",0),"invoice_date":result.confidence.get("invoice_date",0),"amount":result.confidence.get("invoice_amount",0),"recipient":result.confidence.get("counterparty_name",0),"inn":result.confidence.get("inn",0),"kpp":result.confidence.get("kpp",result.confidence.get("inn",0)),"service_name":result.confidence.get("service_name",0)}
  return values,confidence
 def _match_counterparty(result:OCRResult,db:Session):
  normalized_inn="".join(x for x in (result.inn or "") if x.isdigit())
@@ -346,9 +346,10 @@ def _run_recognition(document:Document,db:Session):
   logger.exception("OCR failed for document %s using provider %s",document.id,s.ocr_provider)
   raise HTTPException(503,"Сервис распознавания временно недоступен. Попробуйте еще раз или заполните данные вручную.") from error
  values,confidence=_serialize_ocr(result); counterparty,matched=_match_counterparty(result,db)
+ partner=db.get(Partner,counterparty.partner_id) if matched and counterparty.partner_id else None
  if matched: confidence["inn"]=max(confidence["inn"],.99); confidence["recipient"]=max(confidence["recipient"],.95)
  recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()
- return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None},"raw_text":result.raw_text}
+ return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None,"partner_id":counterparty.partner_id if counterparty else None},"partner":{"matched":bool(partner),"id":partner.id if partner else None,"name":partner.name if partner else None},"raw_text":result.raw_text}
 @router.post("/ocr/invoice")
 @router.post("/ocr")
 async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):

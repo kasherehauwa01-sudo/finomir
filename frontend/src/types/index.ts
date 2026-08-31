@@ -10,8 +10,9 @@ export type Tag = { id: string; name: string };
 export type ExpenseImportResult = { loaded: number; errors_count: number; errors: { row: number; message: string }[] };
 export type OCRResponse = {
   status: 'success'; document_id: string;
-  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField };
-  counterparty: { matched: boolean; id: string | null; name: string | null }; raw_text: string;
+  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField; service_name: OCRField };
+  counterparty: { matched: boolean; id: string | null; name: string | null; partner_id: string | null };
+  partner: { matched: boolean; id: string | null; name: string | null }; raw_text: string;
 };
 export type OCRField = { value: string | null; confidence: number };
 export type PartnerDetail = Partner & { counterparties: Pick<Counterparty, 'id' | 'full_name' | 'inn' | 'kpp'>[] };
