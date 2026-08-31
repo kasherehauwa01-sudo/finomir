@@ -5,6 +5,8 @@ import type { Counterparty, DashboardSummary, Partner, Store, Tag } from '../typ
 import type { StorePreset } from '../types';
 import { money } from '../utils/format';
 import { StorePresetLinks } from '../components/StorePresetLinks';
+import { FilterTagList } from '../components/FilterTagList';
+import { compatibleCounterpartyIds, toggleSelectedId } from '../utils/filterSelection';
 
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
@@ -50,12 +52,12 @@ export function Dashboard() {
   }, [period, revision, tagIds, storeIds, partnerIds, counterpartyIds, paymentStatus]);
 
   function toggle(selected: string[], id: string, update: (value: string[]) => void) {
-    update(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
+    update(toggleSelectedId(selected, id));
   }
   function togglePartner(id: string) {
-    const next = partnerIds.includes(id) ? partnerIds.filter((item) => item !== id) : [...partnerIds, id];
+    const next = toggleSelectedId(partnerIds, id);
     setPartnerIds(next);
-    setCounterpartyIds((current) => current.filter((counterpartyId) => counterparties.some((item) => item.id === counterpartyId && (!next.length || Boolean(item.partner_id && next.includes(item.partner_id))))));
+    setCounterpartyIds((current) => compatibleCounterpartyIds(current, next, counterparties));
   }
 
   const maxTagAmount = Math.max(...(summary?.tag_totals.map((item) => Number(item.amount)) ?? []), 0);
@@ -69,8 +71,8 @@ export function Dashboard() {
       <div className="filter-grid dashboard-filter-grid"><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все расходы</option><option value="paid">Полностью оплачены</option><option value="unpaid">Есть остаток</option></select></label></div>
       <div className="relation-field"><b>Партнеры</b><div className="relation-options">{partners.map((partner) => { const active=partnerIds.includes(partner.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={partner.id} onClick={() => togglePartner(partner.id)}>{partner.name}</button>; })}</div></div>
       <div className="relation-field"><b>Контрагенты</b><div className="relation-options">{counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => { const active=counterpartyIds.includes(item.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={item.id} onClick={() => toggle(counterpartyIds,item.id,setCounterpartyIds)}>{item.full_name}</button>; })}</div></div>
-      <div className="relation-field"><b>Теги</b><div className="relation-options">{tags.map((tag) => { const active = tagIds.includes(tag.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggle(tagIds, tag.id, setTagIds)}>{tag.name}</button>; })}</div></div>
-      <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds} /><div className="relation-options">{stores.map((store) => { const active = storeIds.includes(store.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggle(storeIds, store.id, setStoreIds)}>{store.name}</button>; })}</div></div>
+      <div className="relation-field"><b>Теги</b><FilterTagList items={tags} selectedIds={tagIds} onChange={setTagIds} emptyText="В справочнике пока нет тегов." /></div>
+      <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds} /><FilterTagList items={stores} selectedIds={storeIds} onChange={setStoreIds} emptyText="В справочнике пока нет магазинов." /></div>
     </section>
     {error ? <div className="state error">Не удалось загрузить данные. {error}</div> : !summary ? <div className="state">Загружаем данные…</div> : <>
       <div className="kpis"><article><small>Сумма счетов</small><b>{money(summary.invoice_total)}</b></article><article><small>Оплачено</small><b>{money(summary.paid_total)}</b></article><article><small>Остаток</small><b>{money(summary.remaining_total)}</b></article><article><small>Расходов</small><b>{summary.expense_count}</b></article></div>
