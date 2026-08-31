@@ -6,7 +6,8 @@ import type { StorePreset } from '../types';
 import { money } from '../utils/format';
 import { StorePresetLinks } from '../components/StorePresetLinks';
 import { FilterTagList } from '../components/FilterTagList';
-import { compatibleCounterpartyIds, toggleSelectedId } from '../utils/filterSelection';
+import { compatibleCounterpartyIds } from '../utils/filterSelection';
+import { SearchCheckboxFilter } from '../components/SearchCheckboxFilter';
 
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
@@ -51,11 +52,7 @@ export function Dashboard() {
       .catch((reason: Error) => setError(reason.message));
   }, [period, revision, tagIds, storeIds, partnerIds, counterpartyIds, paymentStatus]);
 
-  function toggle(selected: string[], id: string, update: (value: string[]) => void) {
-    update(toggleSelectedId(selected, id));
-  }
-  function togglePartner(id: string) {
-    const next = toggleSelectedId(partnerIds, id);
+  function updatePartners(next: string[]) {
     setPartnerIds(next);
     setCounterpartyIds((current) => compatibleCounterpartyIds(current, next, counterparties));
   }
@@ -69,8 +66,8 @@ export function Dashboard() {
     <section className="dashboard-filters">
       <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); setPartnerIds([]); setCounterpartyIds([]); setPaymentStatus('all'); }}>Сбросить</button>}</div>
       <div className="filter-grid dashboard-filter-grid"><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все расходы</option><option value="paid">Полностью оплачены</option><option value="unpaid">Есть остаток</option></select></label></div>
-      <div className="relation-field"><b>Партнеры</b><div className="relation-options">{partners.map((partner) => { const active=partnerIds.includes(partner.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={partner.id} onClick={() => togglePartner(partner.id)}>{partner.name}</button>; })}</div></div>
-      <div className="relation-field"><b>Контрагенты</b><div className="relation-options">{counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => { const active=counterpartyIds.includes(item.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={item.id} onClick={() => toggle(counterpartyIds,item.id,setCounterpartyIds)}>{item.full_name}</button>; })}</div></div>
+      <SearchCheckboxFilter label="Партнеры" options={partners.map((item) => ({ id: item.id, name: item.name }))} selectedIds={partnerIds} onChange={updatePartners} searchPlaceholder="Поиск партнера" emptyText="В справочнике пока нет партнеров." />
+      <SearchCheckboxFilter label="Контрагенты" options={counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => ({ id: item.id, name: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} selectedIds={counterpartyIds} onChange={setCounterpartyIds} searchPlaceholder="Поиск по названию или ИНН" emptyText="Нет доступных контрагентов." />
       <div className="relation-field"><b>Теги</b><FilterTagList items={tags} selectedIds={tagIds} onChange={setTagIds} emptyText="В справочнике пока нет тегов." /></div>
       <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds} /><FilterTagList items={stores} selectedIds={storeIds} onChange={setStoreIds} emptyText="В справочнике пока нет магазинов." /></div>
     </section>
