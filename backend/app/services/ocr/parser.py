@@ -51,7 +51,20 @@ def extract_service_name(text: str) -> str | None:
         match = row.match(line)
         if match:
             value = match.group(1).strip(" .;:")
-            if value: services.append(value)
+            if value and re.search(r"[а-яёa-z]", value, re.I): services.append(value)
+    if services: return "; ".join(services)
+
+    # PaddleOCR часто возвращает каждую ячейку таблицы отдельной строкой.
+    # В этом случае после номера позиции идет именно наименование, а затем
+    # количество, единица измерения, цена и сумма.
+    table_lines = [line for line in lines[header_index + 1:header_index + 20] if line]
+    header_labels = re.compile(r"^(?:№|кол-?во|ед\.?|цена|сумма)$", re.I)
+    for index, line in enumerate(table_lines[:-1]):
+        if not re.fullmatch(r"\d{1,3}", line): continue
+        candidate = table_lines[index + 1].strip(" .;:")
+        if (candidate and not header_labels.fullmatch(candidate)
+                and re.search(r"[а-яёa-z]", candidate, re.I)):
+            return candidate
     return "; ".join(services) or None
 
 

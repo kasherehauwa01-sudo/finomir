@@ -132,10 +132,11 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
-      const counterparty = counterparties.find((item) => item.id === response.counterparty.id);
-      if (counterparty?.partner_id) {
-        setCounterpartyId(counterparty.id);
-        setPartnerId(counterparty.partner_id);
+      // Идентификаторы приходят непосредственно из результата поиска по ИНН.
+      // Так заполнение не зависит от того, успели ли загрузиться справочники.
+      if (response.counterparty.matched && response.counterparty.id && response.partner.id) {
+        setCounterpartyId(response.counterparty.id);
+        setPartnerId(response.partner.id);
       }
       setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
       setOcrReviewed(true);

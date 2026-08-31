@@ -346,9 +346,10 @@ def _run_recognition(document:Document,db:Session):
   logger.exception("OCR failed for document %s using provider %s",document.id,s.ocr_provider)
   raise HTTPException(503,"Сервис распознавания временно недоступен. Попробуйте еще раз или заполните данные вручную.") from error
  values,confidence=_serialize_ocr(result); counterparty,matched=_match_counterparty(result,db)
+ partner=db.get(Partner,counterparty.partner_id) if matched and counterparty.partner_id else None
  if matched: confidence["inn"]=max(confidence["inn"],.99); confidence["recipient"]=max(confidence["recipient"],.95)
  recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()
- return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None},"raw_text":result.raw_text}
+ return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None,"partner_id":counterparty.partner_id if counterparty else None},"partner":{"matched":bool(partner),"id":partner.id if partner else None,"name":partner.name if partner else None},"raw_text":result.raw_text}
 @router.post("/ocr/invoice")
 @router.post("/ocr")
 async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):

@@ -52,6 +52,27 @@ def test_apres_invoice_recognizes_supplier_and_service_row():
     assert result.confidence["service_name"] == .9
 
 
+def test_apres_invoice_recognizes_service_from_separate_ocr_cells():
+    text = '''
+№
+Товары (работы, услуги)
+Кол-во
+Ед.
+Цена
+Сумма
+1
+Печать баннеров интерьерная 1,6*0,6 с люверсами
+10
+шт
+595,00
+5 950,00
+Итого
+5 950,00
+'''
+    result = RussianInvoiceParser().parse(text)
+    assert result.service_name == "Печать баннеров интерьерная 1,6*0,6 с люверсами"
+
+
 @pytest.mark.parametrize(("header", "number", "invoice_date"), [
     ("Счёт на оплату № 253 от 27 июля 2026 г.", "253", "2026-07-27"),
     ("Счет № 253 от 27.07.2026", "253", "2026-07-27"),
