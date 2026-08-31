@@ -36,6 +36,22 @@ def test_real_apres_invoice():
     assert result.counterparty_name == 'ООО "АПРЕС"'
 
 
+def test_apres_invoice_recognizes_supplier_and_service_row():
+    text = '''
+Счет на оплату № 298 от 25 августа 2026 г.
+Поставщик (Исполнитель): ООО "АПРЕС", ИНН 3459074228, КПП 344301001
+Покупатель (Заказчик): ИП Куприянова Ольга Владимировна, ИНН 344309962847
+№  Товары (работы, услуги)  Кол-во  Ед.  Цена  Сумма
+1  Печать баннеров интерьерная 1,6*0,6 с люверсами  10  шт  595,00  5 950,00
+Итого: 5 950,00
+Всего к оплате: 5 950,00
+'''
+    result = RussianInvoiceParser().parse(text)
+    assert result.counterparty_name == 'ООО "АПРЕС"'
+    assert result.service_name == "Печать баннеров интерьерная 1,6*0,6 с люверсами"
+    assert result.confidence["service_name"] == .9
+
+
 @pytest.mark.parametrize(("header", "number", "invoice_date"), [
     ("Счёт на оплату № 253 от 27 июля 2026 г.", "253", "2026-07-27"),
     ("Счет № 253 от 27.07.2026", "253", "2026-07-27"),

@@ -128,6 +128,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setInvoiceDate(response.fields.invoice_date.value ?? '');
       setInvoiceAmount(response.fields.amount.value ?? '');
       setPaymentAmount(response.fields.amount.value ?? '');
+      setServiceName(response.fields.service_name.value ?? '');
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
