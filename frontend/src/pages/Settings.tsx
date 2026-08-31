@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { copyText } from '../utils/clipboard';
-import { api } from '../api/client';
-import type { ExpenseImportResult } from '../types';
 
 const UPDATE_SCRIPT_PATH = '/var/www/html/vr/update_finomir.sh';
 

@@ -20,6 +20,7 @@ export function Directories(){
   if(selected==='stores')body={name:form.get('name'),address:form.get('address')||null,comment:form.get('comment')||null};
   if(selected==='storePresets')body={name:form.get('name'),store_ids:form.getAll('store_ids')};
   if(selected==='tags')body={name:form.get('name')};
+  if(selected==='presets')body={name:form.get('name'),store_ids:form.getAll('store_ids')};
   if(selected==='counterparties')body={full_name:form.get('name'),partner_id:form.get('partner_id')||null,entity_type:editing.entity_type||'company',inn:form.get('inn')||null,kpp:form.get('kpp')||null,comment:form.get('comment')||null};
   await api(`${directories[selected].endpoint}${editing.id?`/${editing.id}`:''}`,{method:editing.id?'PUT':'POST',body:JSON.stringify(body)});setEditing(null);load();}
  async function remove(item:Item){if(!selected||!window.confirm(`Удалить «${item.name??item.full_name}»?`))return;try{await api(`${directories[selected].endpoint}/${item.id}`,{method:'DELETE'});load();}catch(e){setError(e instanceof Error?e.message:'Не удалось удалить запись');}}
