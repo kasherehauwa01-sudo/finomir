@@ -5,7 +5,7 @@ import type { Counterparty, DashboardSummary, Partner, Store, Tag } from '../typ
 import type { StorePreset } from '../types';
 import { money } from '../utils/format';
 import { StorePresetLinks } from '../components/StorePresetLinks';
-import { SearchableCheckboxFilter } from '../components/SearchableCheckboxFilter';
+import { FilterTagList } from '../components/FilterTagList';
 
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
@@ -64,12 +64,10 @@ export function Dashboard() {
     <section className="dashboard-filters">
       <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); setPartnerIds([]); setCounterpartyIds([]); setPaymentStatus('all'); }}>Сбросить</button>}</div>
       <div className="filter-grid dashboard-filter-grid"><label>Статус оплаты<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)}><option value="all">Все расходы</option><option value="paid">Полностью оплачены</option><option value="unpaid">Есть остаток</option></select></label></div>
-      <div className="checkbox-filter-grid">
-        <SearchableCheckboxFilter label="Партнеры" options={partners} values={partnerIds} onChange={updatePartners} />
-        <SearchableCheckboxFilter label="Контрагенты" options={counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id && partnerIds.includes(item.partner_id))).map((item) => ({ id: item.id, name: item.full_name, search: item.inn ?? '' }))} values={counterpartyIds} onChange={setCounterpartyIds} />
-        <SearchableCheckboxFilter label="Теги" options={tags} values={tagIds} onChange={setTagIds} />
-        <div className="checkbox-filter-with-presets"><SearchableCheckboxFilter label="Магазины" options={stores} values={storeIds} onChange={setStoreIds} /><StorePresetLinks presets={presets} onSelect={setStoreIds} /></div>
-      </div>
+      <div className="relation-field"><b>Партнеры</b><div className="relation-options">{partners.map((partner) => { const active=partnerIds.includes(partner.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={partner.id} onClick={() => togglePartner(partner.id)}>{partner.name}</button>; })}</div></div>
+      <div className="relation-field"><b>Контрагенты</b><div className="relation-options">{counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => { const active=counterpartyIds.includes(item.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active?'active':'inactive'}`} key={item.id} onClick={() => toggle(counterpartyIds,item.id,setCounterpartyIds)}>{item.full_name}</button>; })}</div></div>
+      <div className="relation-field"><b>Теги</b><FilterTagList items={tags} selectedIds={tagIds} onChange={setTagIds} emptyText="В справочнике пока нет тегов." /></div>
+      <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds} /><FilterTagList items={stores} selectedIds={storeIds} onChange={setStoreIds} emptyText="В справочнике пока нет магазинов." /></div>
     </section>
     {error ? <div className="state error">Не удалось загрузить данные. {error}</div> : !summary ? <div className="state">Загружаем данные…</div> : <>
       <div className="kpis"><article><small>Сумма счетов</small><b>{money(summary.invoice_total)}</b></article><article><small>Оплачено</small><b>{money(summary.paid_total)}</b></article><article><small>Остаток</small><b>{money(summary.remaining_total)}</b></article><article><small>Расходов</small><b>{summary.expense_count}</b></article></div>
