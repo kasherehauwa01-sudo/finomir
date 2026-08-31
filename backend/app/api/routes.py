@@ -228,10 +228,13 @@ def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
   selected_tags=db.scalars(select(Tag).where(Tag.id.in_(data.tag_ids or []))).all()
   if len(selected_tags)!=len(set(data.tag_ids or [])): raise HTTPException(422,"Один или несколько тегов не найдены")
  for expense in expenses:
-  if partner: expense.partner_id=partner.id
+  # Присваиваем сам объект связи, а не только внешний ключ. Так SQLAlchemy
+  # синхронизирует partner_id и уже загруженное отношение partner одновременно,
+  # и следующий ответ реестра не может вернуть старого партнера из identity map.
+  if partner: expense.partner=partner
   if counterparty:
-   expense.counterparty_id=counterparty.id
-   if "partner_id" not in fields and counterparty.partner_id: expense.partner_id=counterparty.partner_id
+   expense.counterparty=counterparty
+   if "partner_id" not in fields and counterparty.partner_id: expense.partner=counterparty.partner
   if selected_tags is not None: expense.tags=list(selected_tags)
   db.add(AuditLog(entity_type="expense",entity_id=expense.id,action="bulk_updated",metadata_={"fields":sorted(fields)},created_at=datetime.now(timezone.utc)))
  db.commit(); return {"updated":len(expenses)}
