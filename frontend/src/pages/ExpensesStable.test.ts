@@ -3,6 +3,6 @@ import { selectAllRowsLabel } from './ExpensesStable';
 
 describe('множественный выбор расходов', () => {
   it('показывает общее количество строк реестра', () => {
-    expect(selectAllRowsLabel(147)).toBe('Выделить все строки (147)');
+    expect(selectAllRowsLabel(147)).toBe('Выбрать все 147 строк');
   });
 });
