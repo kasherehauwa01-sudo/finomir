@@ -15,16 +15,8 @@ class Settings(BaseSettings):
     ocr_service_url: str = "http://ocr:8001"
     ocr_timeout_seconds: int = 60
     ocr_api_key: str | None = None
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_from: str = ""
-    smtp_starttls: bool = True
-    smtp_timeout_seconds: int = 20
-    accounting_email_to: str = ""
-    ai_settings_encryption_key: str = ""
-    openai_timeout_seconds: int = 45
+    smtp_encryption_key: str | None = None
+    ocr_service_url: str = "http://ocr:8001"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @field_validator("base_path")
     @classmethod

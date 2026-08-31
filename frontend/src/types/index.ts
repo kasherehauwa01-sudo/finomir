@@ -10,16 +10,10 @@ export type Tag = { id: string; name: string };
 export type ExpenseImportResult = { loaded: number; errors_count: number; errors: { row: number; message: string }[] };
 export type OCRResponse = {
   status: 'success'; document_id: string;
-  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField; service_name: OCRField };
-  partner: OCRDirectoryMatch; counterparty: OCRDirectoryMatch;
-  ai_fallback: { used: boolean; log_id: string | null; status: 'not_needed' | 'success' | 'partial'; error: string | null };
-  raw_text: string;
+  fields: { invoice_number: OCRField; invoice_date: OCRField; amount: OCRField; recipient: OCRField; inn: OCRField; kpp: OCRField };
+  counterparty: { matched: boolean; id: string | null; name: string | null }; raw_text: string;
 };
-export type OCRSource = 'original' | 'ai' | 'manual';
-export type OCRField = { value: string | null; confidence: number; source?: OCRSource };
-export type OCRDirectoryMatch = { matched: boolean; id: string | null; name: string | null; suggestion: string | null; source: OCRSource };
-export type AISettings = { enabled: boolean; model: string; api_key_saved: boolean; connection_status: 'not_checked' | 'connected' | 'error'; connection_error: string | null; checked_at: string | null };
-export type RecognitionJournalItem = { id:string; document_id:string; expense_id:string|null; created_at:string; invoice_number:string|null; invoice_date:string|null; counterparty:string|null; missing_fields:string[]; missing_labels:string[]; reason:string; supplemented_fields:string[]; success:boolean; status:string; model:string; duration_ms:number; error:string|null; filename:string|null };
+export type OCRField = { value: string | null; confidence: number };
 export type PartnerDetail = Partner & { counterparties: Pick<Counterparty, 'id' | 'full_name' | 'inn' | 'kpp'>[] };
 
 export type ExpenseAllocation = { store_id: string; store: string; amount: string };

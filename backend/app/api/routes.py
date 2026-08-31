@@ -20,10 +20,7 @@ from app.services.expense_import import import_expenses_excel
 from app.services.ocr import get_provider
 from app.services.ocr.base import OCRResult
 from app.services.storage import save_bytes
-from app.services.notifications import accounting_message,send_accounting_email
-from app.services.ai_recognition import AIInvoiceRecognitionService, _error_details, assess_required
-from app.services.ai_settings import decrypt_api_key, encrypt_api_key, get_ai_settings, public_ai_settings
-from app.services.recognition_journal import FIELD_LABELS, codex_prompt
+from app.services.notifications import notify_new_invoice
 router=APIRouter()
 logger=logging.getLogger(__name__)
 def has_cash_payment(invoices)->bool:return any(not item.deleted_at and item.invoice_number.strip().casefold()=="наличные" for item in invoices)
@@ -41,10 +38,12 @@ class PaymentIn(BaseModel): payment_date:date; amount:Decimal=Field(ge=0); comme
 class StoreIn(BaseModel): name:str=Field(min_length=1,max_length=255); address:str|None=None; comment:str|None=None
 class StorePresetIn(BaseModel): name:str=Field(min_length=1,max_length=255); store_ids:list[UUID]=Field(min_length=1)
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
-class AISettingsIn(BaseModel): enabled:bool; model:str=Field(min_length=1,max_length=100); api_key:str|None=None
-class AILogStatusIn(BaseModel): status:str=Field(pattern="^(new|prompt_copied|in_progress|fixed|no_fix_required)$")
-def store_preset_out(preset:StorePreset):
- return {"id":preset.id,"name":preset.name,"store_ids":[store.id for store in preset.stores],"stores":[store.name for store in preset.stores]}
+class ExpenseBulkDeleteIn(BaseModel): ids:list[UUID]=Field(min_length=1)
+class ExpenseBulkTagsIn(BaseModel): expense_ids:list[UUID]=Field(min_length=1); tag_ids:list[UUID]=Field(default_factory=list,max_length=100); action:Literal["add","remove","replace"]
+def _redistribute_payments(expense_id:UUID,db:Session):
+ allocations=db.scalars(select(Allocation).where(Allocation.expense_id==expense_id).order_by(Allocation.store_id)).all()
+ paid=db.scalar(select(func.coalesce(func.sum(Payment.amount),0)).join(Invoice,Payment.invoice_id==Invoice.id).where(Invoice.expense_id==expense_id,Invoice.deleted_at.is_(None),Payment.deleted_at.is_(None))) or Decimal(0)
+ for allocation,amount in zip(allocations,distribute_evenly(Decimal(paid),len(allocations))): allocation.amount=amount
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
@@ -162,26 +161,6 @@ def archive_store(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Store,item_id)
  if not x or x.is_system: raise HTTPException(422,"Системный магазин удалить нельзя")
  x.is_active=False; db.commit()
-@router.get("/store-presets")
-def store_presets(db:Session=Depends(get_db)):
- return [store_preset_out(item) for item in db.scalars(select(StorePreset).options(selectinload(StorePreset.stores)).order_by(StorePreset.name)).all()]
-def preset_stores(store_ids:list[UUID],db:Session):
- stores=db.scalars(select(Store).where(Store.id.in_(store_ids),Store.is_active.is_(True))).all()
- if len(stores)!=len(set(store_ids)): raise HTTPException(422,"Один или несколько магазинов не найдены")
- return stores
-@router.post("/store-presets",status_code=201)
-def create_store_preset(data:StorePresetIn,db:Session=Depends(get_db)):
- x=StorePreset(name=data.name.strip(),stores=preset_stores(data.store_ids,db)); db.add(x); db.commit(); db.refresh(x); return store_preset_out(x)
-@router.put("/store-presets/{item_id}")
-def update_store_preset(item_id:UUID,data:StorePresetIn,db:Session=Depends(get_db)):
- x=db.get(StorePreset,item_id)
- if not x: raise HTTPException(404,"Пресет не найден")
- x.name=data.name.strip(); x.stores=preset_stores(data.store_ids,db); db.commit(); db.refresh(x); return store_preset_out(x)
-@router.delete("/store-presets/{item_id}",status_code=204)
-def delete_store_preset(item_id:UUID,db:Session=Depends(get_db)):
- x=db.get(StorePreset,item_id)
- if not x: raise HTTPException(404,"Пресет не найден")
- db.delete(x); db.commit()
 @router.get("/tags")
 def tags(db:Session=Depends(get_db)):
  return db.scalars(select(Tag).order_by(Tag.name)).all()
@@ -228,12 +207,8 @@ def expense_ids(search:str|None=None,period:str|None=Query(None,pattern=r"^(0[1-
 def create_expense(data:ExpenseIn,db:Session=Depends(get_db)):
  if not db.get(Partner,data.partner_id) or not db.get(Counterparty,data.counterparty_id): raise HTTPException(422,"Партнер или контрагент не найден")
  if any(not db.get(Store,item.store_id) for item in data.allocations): raise HTTPException(422,"Магазин не найден")
- values=data.model_dump(exclude={"allocations","tag_ids","ai_log_id"}); x=Expense(**values); x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]; db.add(x); db.flush()
+ values=data.model_dump(exclude={"allocations","tag_ids"}); x=Expense(**values); x.tags=[db.get(Tag,item_id) for item_id in data.tag_ids if db.get(Tag,item_id)]; db.add(x); db.flush()
  for item in data.allocations: db.add(Allocation(expense_id=x.id,**item.model_dump()))
- if data.ai_log_id:
-  ai_log=db.get(AIFallbackLog,data.ai_log_id)
-  if ai_log and ai_log.expense_id is None:
-   ai_log.expense_id=x.id; ai_log.final_fields={**ai_log.final_fields,"partner":{"id":str(data.partner_id),"value":db.get(Partner,data.partner_id).name,"source":"manual"},"counterparty":{"id":str(data.counterparty_id),"value":db.get(Counterparty,data.counterparty_id).full_name,"source":"manual"},"service_name":{"value":data.service_name,"source":"manual"}}; ai_log.updated_at=datetime.now(timezone.utc)
  db.add(AuditLog(entity_type="expense",entity_id=x.id,action="created",metadata_={},created_at=datetime.now(timezone.utc))); db.commit(); return {"id":x.id}
 @router.put("/expenses/bulk/update")
 def bulk_update_expenses(data:ExpenseBulkUpdateIn,db:Session=Depends(get_db)):
@@ -284,7 +259,7 @@ def expense_detail(expense_id:UUID,db:Session=Depends(get_db)):
 def update_expense(expense_id:UUID,data:ExpenseIn,db:Session=Depends(get_db)):
  x=db.get(Expense,expense_id)
  if not x or x.deleted_at: raise HTTPException(404,"Расход не найден")
- for key,value in data.model_dump(exclude={"allocations","tag_ids","ai_log_id"}).items(): setattr(x,key,value)
+ for key,value in data.model_dump(exclude={"allocations","tag_ids"}).items(): setattr(x,key,value)
  existing={item.store_id:item for item in x.allocations}; selected={item.store_id:item for item in data.allocations}
  for store_id,allocation in list(existing.items()):
   if store_id not in selected: db.delete(allocation)
@@ -304,7 +279,9 @@ async def upload_expense_document(expense_id:UUID,document_type:str=Query(patter
  data=await file.read(); s=get_settings()
  try: stored,path,sha=save_bytes(data,file.filename or "document",file.content_type or "",s.upload_dir,s.max_upload_size_mb)
  except ValueError as e: raise HTTPException(422,str(e))
- x=Document(expense_id=expense_id,document_type=document_type,original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(x); db.commit(); return {"id":x.id}
+ x=Document(expense_id=expense_id,document_type=document_type,original_filename=file.filename or "document",stored_filename=stored,storage_path=path,mime_type=file.content_type or "",file_size=len(data),sha256=sha,created_at=datetime.now(timezone.utc)); db.add(x); db.commit()
+ if document_type=="invoice": notify_new_invoice(x.id,db)
+ return {"id":x.id}
 @router.get("/documents/{document_id}/content")
 def document_content(document_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Document,document_id)
@@ -315,7 +292,9 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
  document=db.get(Document,document_id); expense=db.get(Expense,expense_id)
  if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
  if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
- document.expense_id=expense_id; db.commit(); return {"id":document.id}
+ document.expense_id=expense_id; db.commit()
+ if document.document_type=="invoice": notify_new_invoice(document.id,db)
+ return {"id":document.id}
 @router.post("/expenses/{expense_id}/invoices",status_code=201)
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):
  exp=db.get(Expense,expense_id)
@@ -369,13 +348,7 @@ def _run_recognition(document:Document,db:Session):
  values,confidence=_serialize_ocr(result); counterparty,matched=_match_counterparty(result,db)
  if matched: confidence["inn"]=max(confidence["inn"],.99); confidence["recipient"]=max(confidence["recipient"],.95)
  recognition=OCRRecognition(document_id=document.id,provider=s.ocr_provider,raw_text=result.raw_text,fields=values,confidence=confidence,blocks=result.blocks,created_at=datetime.now(timezone.utc)); db.add(recognition); db.commit()
- partner=db.get(Partner,counterparty.partner_id) if counterparty and counterparty.partner_id else None
- primary={"partner":{"id":str(partner.id) if partner else None,"value":partner.name if partner else None,"matched":bool(partner),"confidence":.99 if partner else 0,"source":"original"},"counterparty":{"id":str(counterparty.id) if counterparty else None,"value":counterparty.full_name if counterparty else result.counterparty_name,"inn":result.inn,"matched":matched,"confidence":confidence["recipient"],"source":"original"},"service_name":{"value":result.service_name,"confidence":result.confidence.get("service_name",0),"source":"original"},"invoice_number":{"value":result.invoice_number,"confidence":confidence["invoice_number"],"source":"original"},"invoice_date":{"value":result.invoice_date,"confidence":confidence["invoice_date"],"source":"original"},"amount":{"value":str(result.invoice_amount) if result.invoice_amount is not None else None,"confidence":confidence["amount"],"source":"original"}}
- logger.info("Primary recognition completed for document %s",document.id)
- merged,ai_log=AIInvoiceRecognitionService().supplement(db,document,primary)
- db.commit()
- response_fields={"invoice_number":merged["invoice_number"],"invoice_date":merged["invoice_date"],"amount":merged["amount"],"recipient":{"value":merged["counterparty"].get("value"),"confidence":merged["counterparty"].get("confidence",0),"source":merged["counterparty"].get("source","original")},"inn":{"value":merged["counterparty"].get("inn") or result.inn,"confidence":confidence["inn"],"source":merged["counterparty"].get("source","original")},"kpp":{"value":result.kpp,"confidence":confidence["kpp"],"source":"original"},"service_name":merged["service_name"]}
- return {"status":"success","document_id":document.id,"fields":response_fields,"partner":{"matched":bool(merged["partner"].get("id")),"id":merged["partner"].get("id"),"name":merged["partner"].get("value"),"suggestion":None if merged["partner"].get("id") else merged["partner"].get("value"),"source":merged["partner"].get("source","original")},"counterparty":{"matched":bool(merged["counterparty"].get("id")),"id":merged["counterparty"].get("id"),"name":merged["counterparty"].get("value"),"suggestion":None if merged["counterparty"].get("id") else merged["counterparty"].get("value"),"source":merged["counterparty"].get("source","original")},"ai_fallback":{"used":bool(ai_log),"log_id":str(ai_log.id) if ai_log else None,"status":"success" if ai_log and ai_log.success else "partial" if ai_log else "not_needed","error":ai_log.error_message if ai_log else None},"raw_text":result.raw_text}
+ return {"status":"success","document_id":document.id,"fields":{key:{"value":value,"confidence":confidence[key]} for key,value in values.items()},"counterparty":{"matched":matched,"id":counterparty.id if counterparty else None,"name":counterparty.full_name if counterparty else None},"raw_text":result.raw_text}
 @router.post("/ocr/invoice")
 @router.post("/ocr")
 async def ocr(file:UploadFile=File(...),db:Session=Depends(get_db)):
@@ -388,69 +361,6 @@ def recognize_document(document_id:UUID,db:Session=Depends(get_db)):
  document=db.get(Document,document_id)
  if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
  return _run_recognition(document,db)
-
-@router.get("/settings/ai")
-def ai_settings(db:Session=Depends(get_db)):
- item=get_ai_settings(db); db.commit(); return public_ai_settings(item)
-
-@router.put("/settings/ai")
-def update_ai_settings(data:AISettingsIn,db:Session=Depends(get_db)):
- item=get_ai_settings(db)
- if data.api_key:
-  if not data.api_key.startswith("sk-"): raise HTTPException(422,"API-ключ OpenAI имеет неверный формат")
-  try: item.encrypted_api_key=encrypt_api_key(data.api_key)
-  except ValueError as error: raise HTTPException(503,str(error)) from error
-  item.connection_status="not_checked"; item.connection_error=None; item.checked_at=None
- if data.enabled and not item.encrypted_api_key: raise HTTPException(422,"Сначала сохраните API-ключ OpenAI")
- item.enabled=data.enabled; item.model=data.model.strip(); item.updated_at=datetime.now(timezone.utc); db.commit(); return public_ai_settings(item)
-
-@router.post("/settings/ai/test")
-def test_ai_connection(db:Session=Depends(get_db)):
- item=get_ai_settings(db)
- try:
-  key=decrypt_api_key(item.encrypted_api_key)
-  if not key: raise HTTPException(422,"API-ключ OpenAI не сохранен")
-  AIInvoiceRecognitionService().test_connection(key,item.model)
-  item.connection_status="connected"; item.connection_error=None
- except HTTPException: raise
- except ValueError as error: raise HTTPException(503,str(error)) from error
- except Exception as error:
-  _,message=_error_details(error); item.connection_status="error"; item.connection_error=message; item.checked_at=datetime.now(timezone.utc); item.updated_at=item.checked_at; db.commit(); raise HTTPException(503,message) from error
- item.checked_at=datetime.now(timezone.utc); item.updated_at=item.checked_at; db.commit(); return {"status":"connected","message":"Подключение успешно"}
-
-def _journal_item(item:AIFallbackLog,db:Session,include_details:bool=False):
- document=db.get(Document,item.document_id); result={"id":item.id,"document_id":item.document_id,"expense_id":item.expense_id,"created_at":item.created_at,"invoice_number":item.final_fields.get("invoice_number",{}).get("value"),"invoice_date":item.final_fields.get("invoice_date",{}).get("value"),"counterparty":item.final_fields.get("counterparty",{}).get("value"),"missing_fields":item.missing_fields,"missing_labels":[FIELD_LABELS.get(x,x) for x in item.missing_fields],"reason":item.reason,"supplemented_fields":item.supplemented_fields,"success":item.success,"status":item.status,"model":item.model,"duration_ms":item.duration_ms,"error":item.error_message,"filename":document.original_filename if document else None}
- if include_details: result.update({"primary_fields":item.primary_fields,"ai_fields":item.ai_fields,"final_fields":item.final_fields,"usage":item.usage,"request_id":item.request_id,"prompt":codex_prompt(item)})
- return result
-
-@router.get("/recognition-journal")
-def recognition_journal(problem_field:str|None=None,result:str|None=Query(None,pattern="^(success|partial|error)$"),status:str|None=None,date_from:date|None=None,date_to:date|None=None,db:Session=Depends(get_db)):
- q=select(AIFallbackLog).order_by(AIFallbackLog.created_at.desc())
- if status: q=q.where(AIFallbackLog.status==status)
- if date_from: q=q.where(AIFallbackLog.created_at>=datetime.combine(date_from,datetime.min.time(),tzinfo=timezone.utc))
- if date_to: q=q.where(AIFallbackLog.created_at<datetime.combine(date_to,datetime.max.time(),tzinfo=timezone.utc))
- items=db.scalars(q).all()
- if problem_field: items=[x for x in items if problem_field in x.missing_fields]
- if result=="success": items=[x for x in items if x.success]
- elif result=="partial": items=[x for x in items if not x.success and not x.error_code]
- elif result=="error": items=[x for x in items if x.error_code]
- cutoff=datetime.now(timezone.utc).timestamp()-30*86400; summary={key:0 for key in FIELD_LABELS}
- for item in items:
-  if item.created_at.timestamp()>=cutoff:
-   for key in item.missing_fields: summary[key]=summary.get(key,0)+1
- return {"items":[_journal_item(x,db) for x in items],"summary":[{"field":key,"label":FIELD_LABELS.get(key,key),"count":count} for key,count in summary.items()]}
-
-@router.get("/recognition-journal/{item_id}")
-def recognition_journal_detail(item_id:UUID,db:Session=Depends(get_db)):
- item=db.get(AIFallbackLog,item_id)
- if not item: raise HTTPException(404,"Запись журнала не найдена")
- return _journal_item(item,db,True)
-
-@router.put("/recognition-journal/{item_id}/status")
-def recognition_journal_status(item_id:UUID,data:AILogStatusIn,db:Session=Depends(get_db)):
- item=db.get(AIFallbackLog,item_id)
- if not item: raise HTTPException(404,"Запись журнала не найдена")
- item.status=data.status; item.updated_at=datetime.now(timezone.utc); db.commit(); return {"status":item.status}
 @router.get("/export")
 def export(db:Session=Depends(get_db)):
  items,_=ExpenseRepository(db).list(1,100,None); wb=Workbook(); ws=wb.active; ws.title="Расходы"; ws.append(["Период","Партнер","Контрагент","ИНН","Услуга","Договор","Счет","Дата счета","Сумма","Оплачено","Остаток"])

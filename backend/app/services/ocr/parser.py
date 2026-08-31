@@ -35,23 +35,6 @@ def _money(value: str) -> Decimal | None:
     except InvalidOperation: return None
 
 
-def extract_service_name(text: str) -> str | None:
-    """Извлекает наименования из табличной части счёта, не захватывая числа."""
-    lines = [re.sub(r"\s+", " ", line).strip() for line in text.replace("\xa0", " ").splitlines()]
-    header_index = next((index for index, line in enumerate(lines)
-        if re.search(r"товар[ыа]?\s*\(?(?:работ[ыа],?\s*)?услуг[аи]\)?", line, re.I)), None)
-    if header_index is None: return None
-    services = []
-    row = re.compile(r"^\s*\d+\s+(.+?)(?=\s+\d+(?:[,.]\d+)?\s+(?:шт\.?|усл\.?|ед\.?|компл\.?|м\d?|кг\b)|\s{2,}\d+[\d ]*[,.]\d{2}\b|$)", re.I)
-    for line in lines[header_index + 1:header_index + 12]:
-        if re.search(r"^(?:итого|всего|без налога|ндс)\b", line, re.I): break
-        match = row.match(line)
-        if match:
-            value = match.group(1).strip(" .;:")
-            if value: services.append(value)
-    return "; ".join(services) or None
-
-
 class RussianInvoiceParser:
     """Детерминированный парсер российских счетов, независимый от OCR-движка."""
     def parse(self, text: str, ocr_confidence: float = 1.0, blocks: list | None = None) -> OCRResult:
@@ -103,10 +86,9 @@ class RussianInvoiceParser:
         if not recipient:
             found = re.search(organization, normalized, re.I)
             if found: recipient, recipient_score = found.group(1).strip(), .65
-        service_name = extract_service_name(normalized)
         scale = max(.3, min(1.0, ocr_confidence))
         return OCRResult(invoice_number=number, invoice_date=date_value, invoice_amount=amount,
-            counterparty_name=recipient, inn=inn, kpp=kpp, service_name=service_name, raw_text=text, blocks=blocks or [],
+            counterparty_name=recipient, inn=inn, kpp=kpp, raw_text=text, blocks=blocks or [],
             confidence={"invoice_number": (header_score if number else 0) * scale, "invoice_date": (.94 if date_value and header else 0) * scale,
              "invoice_amount": amount_score * scale, "counterparty_name": recipient_score * scale,
-             "inn": ((.99 if inn_valid else .45) if inn else 0) * scale, "service_name": (.9 if service_name else 0) * scale})
+             "inn": ((.99 if inn_valid else .45) if inn else 0) * scale})

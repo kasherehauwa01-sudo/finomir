@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { copyText } from '../utils/clipboard';
+import { api } from '../api/client';
+import type { ExpenseImportResult } from '../types';
 
 const UPDATE_SCRIPT_PATH = '/var/www/html/vr/update_finomir.sh';
 
@@ -84,7 +86,7 @@ export function Settings() {
           <p>Системные параметры и команды обслуживания</p>
         </div>
       </div>
-      <div className="settings-tabs" role="tablist" aria-label="Разделы настроек"><button role="tab" aria-selected={tab==='service'} className={tab==='service'?'active':''} onClick={()=>{setTab('service');setMessage('')}}>Общие</button><button role="tab" aria-selected={tab==='smtp'} className={tab==='smtp'?'active':''} onClick={()=>{setTab('smtp');setMessage('')}}>Настройки SMTP</button><button role="tab" aria-selected={tab==='scenarios'} className={tab==='scenarios'?'active':''} onClick={()=>{setTab('scenarios');setMessage('')}}>Сценарии уведомлений</button></div>
+      <div className="settings-tabs" role="tablist" aria-label="Разделы настроек"><button role="tab" aria-selected={tab==='service'} className={tab==='service'?'active':''} onClick={()=>{setTab('service');setMessage('')}}>Общие</button><button role="tab" aria-selected={tab==='smtp'} className={tab==='smtp'?'active':''} onClick={()=>{setTab('smtp');setMessage('')}}>SMTP</button><button role="tab" aria-selected={tab==='scenarios'} className={tab==='scenarios'?'active':''} onClick={()=>{setTab('scenarios');setMessage('')}}>Сценарии</button></div>
       {message&&<p className={`notice settings-notice ${message.includes('сохранены')?'success':''}`} role="status">{message}</p>}
 
       {tab==='service'&&<>
