@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ExpenseModal } from '../components/ExpenseModalStable';
+import { StorePresetLinks } from '../components/StorePresetLinks';
 import { api } from '../api/client';
-import type { DashboardSummary, Store, Tag } from '../types';
+import type { DashboardSummary, Store, StorePreset, Tag } from '../types';
 import { money } from '../utils/format';
 
 type Period = DashboardSummary['period'];
@@ -16,14 +17,15 @@ export function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary>();
   const [tags, setTags] = useState<Tag[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [presets, setPresets] = useState<StorePreset[]>([]);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [storeIds, setStoreIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
-    Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores')])
-      .then(([tagItems, storeItems]) => { setTags(tagItems); setStores(storeItems); })
+    Promise.all([api<Tag[]>('/tags'), api<Store[]>('/stores'), api<StorePreset[]>('/store-presets')])
+      .then(([tagItems, storeItems, presetItems]) => { setTags(tagItems); setStores(storeItems); setPresets(presetItems); })
       .catch((reason: Error) => setError(reason.message));
   }, []);
 
@@ -51,7 +53,7 @@ export function Dashboard() {
     <section className="dashboard-filters">
       <div className="section-title"><div><h2>Фильтры</h2><p>Можно выбрать несколько значений</p></div>{hasFilters && <button type="button" className="link" onClick={() => { setTagIds([]); setStoreIds([]); }}>Сбросить</button>}</div>
       <div className="relation-field"><b>Теги</b><div className="relation-options">{tags.map((tag) => { const active = tagIds.includes(tag.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={tag.id} onClick={() => toggle(tagIds, tag.id, setTagIds)}>{tag.name}</button>; })}</div></div>
-      <div className="relation-field"><b>Магазины</b><div className="relation-options">{stores.map((store) => { const active = storeIds.includes(store.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggle(storeIds, store.id, setStoreIds)}>{store.name}</button>; })}</div></div>
+      <div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={setStoreIds}/><div className="relation-options">{stores.map((store) => { const active = storeIds.includes(store.id); return <button type="button" aria-pressed={active} className={`relation-chip ${active ? 'active' : 'inactive'}`} key={store.id} onClick={() => toggle(storeIds, store.id, setStoreIds)}>{store.name}</button>; })}</div></div>
     </section>
     {error ? <div className="state error">Не удалось загрузить данные. {error}</div> : !summary ? <div className="state">Загружаем данные…</div> : <>
       <div className="kpis"><article><small>Сумма счетов</small><b>{money(summary.invoice_total)}</b></article><article><small>Оплачено</small><b>{money(summary.paid_total)}</b></article><article><small>Остаток</small><b>{money(summary.remaining_total)}</b></article><article><small>Расходов</small><b>{summary.expense_count}</b></article></div>

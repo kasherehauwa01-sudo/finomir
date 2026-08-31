@@ -8,7 +8,6 @@ import { DirectoryCard } from './pages/DirectoryCardStable';
 import { Expenses } from './pages/ExpensesStable';
 import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
-import { RecognitionJournal } from './pages/RecognitionJournal';
 import './styles.css';
 
 declare const __BASE_PATH__: string;
@@ -26,7 +25,6 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/directories/:directory/:itemId" element={<DirectoryCard />} />
           <Route path="/partners" element={<Directories />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/recognition-journal" element={<RecognitionJournal />} />
         </Route>
       </Routes>
     </BrowserRouter>
