@@ -7,8 +7,12 @@ const directories = { partners:{title:'Партнеры',icon:'◎',endpoint:'/p
 type DirectoryKey=keyof typeof directories;
 type Item={id:string;name?:string;full_name?:string;partner_id?:string;entity_type?:string;inn?:string;kpp?:string;address?:string;comment?:string;is_system?:boolean};
 
-// Поиск выполняется над текущим универсальным Item без устаревших внешних
-// filterPartners/filterLinkedCounterparties из другой реализации страницы.
+export const filterPartners = (items: Partner[], search: string, selectedId = '') => {
+ const term=search.trim().toLowerCase(); return items.filter((item)=>!term||item.name.toLowerCase().includes(term)||item.id===selectedId);
+};
+export const filterLinkedCounterparties = (items: Counterparty[], search: string) => {
+ const term=search.trim().toLowerCase(); return items.filter((item)=>!term||`${item.full_name} ${item.inn??''}`.toLowerCase().includes(term));
+};
 
 export function Directories(){
  const {directory}=useParams<{directory?:string}>(); const selected=directory&&directory in directories?directory as DirectoryKey:undefined;

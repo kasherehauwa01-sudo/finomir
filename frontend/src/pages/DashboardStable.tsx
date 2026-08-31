@@ -6,6 +6,7 @@ import type { StorePreset } from '../types';
 import { money } from '../utils/format';
 import { StorePresetLinks } from '../components/StorePresetLinks';
 import { FilterTagList } from '../components/FilterTagList';
+import { compatibleCounterpartyIds, toggleSelectedId } from '../utils/filterSelection';
 
 type Period = DashboardSummary['period'];
 const labels: Record<Period, string> = { month: 'Месяц', quarter: 'Квартал', year: 'Год' };
@@ -50,9 +51,13 @@ export function Dashboard() {
       .catch((reason: Error) => setError(reason.message));
   }, [period, revision, tagIds, storeIds, partnerIds, counterpartyIds, paymentStatus]);
 
-  function updatePartners(next: string[]) {
+  function toggle(selected: string[], id: string, update: (value: string[]) => void) {
+    update(toggleSelectedId(selected, id));
+  }
+  function togglePartner(id: string) {
+    const next = toggleSelectedId(partnerIds, id);
     setPartnerIds(next);
-    setCounterpartyIds((current) => current.filter((counterpartyId) => counterparties.some((item) => item.id === counterpartyId && (!next.length || Boolean(item.partner_id && next.includes(item.partner_id))))));
+    setCounterpartyIds((current) => compatibleCounterpartyIds(current, next, counterparties));
   }
 
   const maxTagAmount = Math.max(...(summary?.tag_totals.map((item) => Number(item.amount)) ?? []), 0);

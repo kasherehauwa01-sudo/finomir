@@ -1,3 +1,5 @@
+import { toggleSelectedId } from '../utils/filterSelection';
+
 type FilterTag = { id: string; name: string };
 
 type Props = {
@@ -8,9 +10,7 @@ type Props = {
 };
 
 export function toggleFilterTag(selectedIds: string[], id: string) {
-  return selectedIds.includes(id)
-    ? selectedIds.filter((item) => item !== id)
-    : [...selectedIds, id];
+  return toggleSelectedId(selectedIds, id);
 }
 
 /** Отображает значения фильтра компактными плашками с множественным выбором. */

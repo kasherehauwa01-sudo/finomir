@@ -7,6 +7,7 @@ import type { Counterparty, Partner, Store, Tag } from '../types';
 import { money } from '../utils/format';
 import { NotificationStatus } from '../components/NotificationStatus';
 import { FilterTagList } from '../components/FilterTagList';
+import { compatibleCounterpartyIds, toggleSelectedId } from '../utils/filterSelection';
 
 // Реестр использует один набор состояний selectedIds/bulk* и локальные
 // period/paymentStatus. Это предотвращает повторное смешение двух реализаций
@@ -93,8 +94,8 @@ export function Expenses() {
   function toggleVisible() {
     setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
   }
-  const updateFilterValues = (update: (next: string[]) => void) => (next: string[]) => { update(next); setPage(1); setSelectedIds([]); };
-  const updatePartnerFilter = (next: string[]) => { setPartnerIds(next);setCounterpartyIds((current)=>current.filter((counterpartyId)=>counterparties.some((item)=>item.id===counterpartyId&&(!next.length||Boolean(item.partner_id&&next.includes(item.partner_id))))));setPage(1);setSelectedIds([]); };
+  const toggleFilter = (values: string[], id: string, update: (next: string[]) => void) => { update(toggleSelectedId(values, id)); setPage(1); setSelectedIds([]); };
+  const togglePartnerFilter = (id: string) => { const next=toggleSelectedId(partnerIds,id);setPartnerIds(next);setCounterpartyIds((current)=>compatibleCounterpartyIds(current,next,counterparties));setPage(1);setSelectedIds([]); };
   function resetFilters() { setPeriod(''); setPaymentStatus('all'); setPartnerIds([]); setCounterpartyIds([]); setStoreIds([]); setTagIds([]); setAmountFrom(''); setAmountTo(''); setInvoiceDateFrom(''); setInvoiceDateTo(''); setInvoiceDocument('all'); setClosingDocument('all'); setPage(1); }
 
   async function selectAllRows() {
