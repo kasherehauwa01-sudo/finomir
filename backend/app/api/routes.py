@@ -38,6 +38,8 @@ class StorePresetIn(BaseModel): name:str=Field(min_length=1,max_length=255); sto
 class TagIn(BaseModel): name:str=Field(min_length=1,max_length=100)
 class AISettingsIn(BaseModel): enabled:bool; model:str=Field(min_length=1,max_length=100); api_key:str|None=None
 class AILogStatusIn(BaseModel): status:str=Field(pattern="^(new|prompt_copied|in_progress|fixed|no_fix_required)$")
+def store_preset_out(preset:StorePreset):
+ return {"id":preset.id,"name":preset.name,"store_ids":[store.id for store in preset.stores],"stores":[store.name for store in preset.stores]}
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
@@ -128,6 +130,26 @@ def archive_store(item_id:UUID,db:Session=Depends(get_db)):
  x=db.get(Store,item_id)
  if not x or x.is_system: raise HTTPException(422,"Системный магазин удалить нельзя")
  x.is_active=False; db.commit()
+@router.get("/store-presets")
+def store_presets(db:Session=Depends(get_db)):
+ return [store_preset_out(item) for item in db.scalars(select(StorePreset).options(selectinload(StorePreset.stores)).order_by(StorePreset.name)).all()]
+def preset_stores(store_ids:list[UUID],db:Session):
+ stores=db.scalars(select(Store).where(Store.id.in_(store_ids),Store.is_active.is_(True))).all()
+ if len(stores)!=len(set(store_ids)): raise HTTPException(422,"Один или несколько магазинов не найдены")
+ return stores
+@router.post("/store-presets",status_code=201)
+def create_store_preset(data:StorePresetIn,db:Session=Depends(get_db)):
+ x=StorePreset(name=data.name.strip(),stores=preset_stores(data.store_ids,db)); db.add(x); db.commit(); db.refresh(x); return store_preset_out(x)
+@router.put("/store-presets/{item_id}")
+def update_store_preset(item_id:UUID,data:StorePresetIn,db:Session=Depends(get_db)):
+ x=db.get(StorePreset,item_id)
+ if not x: raise HTTPException(404,"Пресет не найден")
+ x.name=data.name.strip(); x.stores=preset_stores(data.store_ids,db); db.commit(); db.refresh(x); return store_preset_out(x)
+@router.delete("/store-presets/{item_id}",status_code=204)
+def delete_store_preset(item_id:UUID,db:Session=Depends(get_db)):
+ x=db.get(StorePreset,item_id)
+ if not x: raise HTTPException(404,"Пресет не найден")
+ db.delete(x); db.commit()
 @router.get("/tags")
 def tags(db:Session=Depends(get_db)):
  return db.scalars(select(Tag).order_by(Tag.name)).all()
