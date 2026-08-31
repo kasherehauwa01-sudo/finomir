@@ -16,6 +16,15 @@ from app.services.ai_settings import decrypt_api_key, get_ai_settings
 
 logger = logging.getLogger(__name__)
 REQUIRED_FIELDS = ("partner", "counterparty", "service_name", "invoice_number", "invoice_date", "amount")
+INVOICE_RECOGNITION_PROMPT = """Ты распознаёшь российский счёт на оплату и возвращаешь только поля заданной JSON-схемы.
+
+Правила заполнения:
+- counterparty — поставщик/исполнитель, которому оплачивают счёт, а не покупатель/заказчик и не банк. Возьми полное наименование из блока «Поставщик (Исполнитель)»; если этот блок не читается — из реквизитов «Получатель». ИНН также бери только у поставщика/получателя. Сохраняй организационно-правовую форму и название, например: ООО «АПРЕС».
+- service_name — точное наименование товара, работы или услуги из колонки «Товары (работы, услуги)» первой строки табличной части. Не включай номер строки, количество, единицу измерения, цену и сумму. Если строк несколько, объедини их наименования через «; ».
+- invoice_number и invoice_date — номер и дата из заголовка «Счёт на оплату», amount — итог «Всего к оплате», partner — только явно указанный в документе партнёр.
+- Не путай подписи полей и заголовки колонок со значениями. Не исправляй и не сокращай распознанный текст по смыслу.
+- Ничего не выдумывай: если значение нельзя надёжно прочитать или его нет в документе, верни null. Дата только YYYY-MM-DD, сумма — положительное число в RUB.
+"""
 SCHEMA = {"type":"object","additionalProperties":False,"properties":{
     "partner":{"$ref":"#/$defs/text"},"counterparty":{"type":"object","additionalProperties":False,"properties":{"value":{"type":["string","null"]},"inn":{"type":["string","null"]},"confidence":{"type":"number","minimum":0,"maximum":1}},"required":["value","inn","confidence"]},
     "service_name":{"$ref":"#/$defs/text"},"invoice_number":{"$ref":"#/$defs/text"},"invoice_date":{"$ref":"#/$defs/text"},
@@ -103,7 +112,7 @@ class AIInvoiceRecognitionService:
         started=time.monotonic(); now=datetime.now(timezone.utc); ai={}; request_id=None; usage=None; error_code=error_message=None
         try:
             client=self._client(api_key=decrypt_api_key(settings.encrypted_api_key),timeout=get_settings().openai_timeout_seconds,max_retries=0)
-            response=client.responses.create(model=settings.model,input=[{"role":"system","content":[{"type":"input_text","text":"Извлеки реквизиты российского счета. Не выдумывай данные: если их нет, верни null. Дата только YYYY-MM-DD, сумма числом в RUB."}]},{"role":"user","content":[{"type":"input_text","text":f"Основной механизм не заполнил: {', '.join(missing)}. Проанализируй исходный документ."},_document_content(document)]}],text={"format":{"type":"json_schema","name":"invoice_fields","strict":True,"schema":SCHEMA}})
+            response=client.responses.create(model=settings.model,input=[{"role":"system","content":[{"type":"input_text","text":INVOICE_RECOGNITION_PROMPT}]},{"role":"user","content":[{"type":"input_text","text":f"Основной механизм не заполнил: {', '.join(missing)}. Проанализируй исходный документ."},_document_content(document)]}],text={"format":{"type":"json_schema","name":"invoice_fields","strict":True,"schema":SCHEMA}})
             ai=json.loads(response.output_text); request_id=getattr(response,"_request_id",None); raw_usage=getattr(response,"usage",None); usage=raw_usage.model_dump() if hasattr(raw_usage,"model_dump") else None
             logger.info("OpenAI response received for document %s",document.id)
         except Exception as error:

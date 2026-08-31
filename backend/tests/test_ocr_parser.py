@@ -19,6 +19,8 @@ REAL_APRES_TEXT = '''
 ООО "АПРЕС", ИНН 3459074228, КПП 344301001
 Покупатель
 ИП Куприянова Ольга Владимировна, ИНН 344309962847
+Товары (работы, услуги) Кол-во Ед. Цена Сумма
+1 Печать баннеров интерьерная 1,6*0,6 с люверсами 10 шт 595,00 5 950,00
 Итого:
 7 140,00
 Всего к оплате:
@@ -34,6 +36,17 @@ def test_real_apres_invoice():
     assert result.inn == "3459074228"
     assert result.kpp == "344301001"
     assert result.counterparty_name == 'ООО "АПРЕС"'
+    assert result.service_name == "Печать баннеров интерьерная 1,6*0,6 с люверсами"
+
+
+def test_multiple_service_rows_are_joined_without_table_values():
+    result = RussianInvoiceParser().parse(
+        "Товары (работы, услуги) Кол-во Ед. Цена Сумма\n"
+        "1 Печать баннеров 10 шт 595,00 5 950,00\n"
+        "2 Монтаж баннеров 1 усл. 1 000,00 1 000,00\n"
+        "Итого: 6 950,00"
+    )
+    assert result.service_name == "Печать баннеров; Монтаж баннеров"
 
 
 @pytest.mark.parametrize(("header", "number", "invoice_date"), [
