@@ -25,9 +25,9 @@ class FakeDB:
 
 
 class FakeResponses:
-    def __init__(self, payload=None, error=None): self.payload=payload; self.error=error; self.calls=0
+    def __init__(self, payload=None, error=None): self.payload=payload; self.error=error; self.calls=0; self.last_call=None
     def create(self, **kwargs):
-        self.calls+=1
+        self.calls+=1; self.last_call=kwargs
         if self.error: raise self.error
         return SimpleNamespace(output_text=json.dumps(self.payload),_request_id="req_test",usage=SimpleNamespace(model_dump=lambda:{"input_tokens":10,"output_tokens":5}))
 
@@ -54,6 +54,17 @@ def test_primary_five_of_six_calls_openai_and_supplements_amount(tmp_path,monkey
     responses=FakeResponses(ai_payload()); service=AIInvoiceRecognitionService(lambda **kwargs:SimpleNamespace(responses=responses)); db=FakeDB(settings())
     result,log=service.supplement(db,document(tmp_path),primary(amount={"value":None}))
     assert responses.calls==1 and result["amount"]["value"]=="100.00" and result["amount"]["source"]=="ai" and log.supplemented_fields==["amount"]
+
+
+def test_prompt_distinguishes_supplier_and_service_table(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.ai_recognition.decrypt_api_key",lambda value:"sk-test")
+    responses=FakeResponses(ai_payload())
+    service=AIInvoiceRecognitionService(lambda **kwargs:SimpleNamespace(responses=responses))
+    service.supplement(FakeDB(settings()),document(tmp_path),primary(counterparty={"id":None,"value":None},service_name={"value":None}))
+    prompt=responses.last_call["input"][0]["content"][0]["text"]
+    assert "поставщик/исполнитель" in prompt
+    assert "а не покупатель/заказчик" in prompt
+    assert "Товары (работы, услуги)" in prompt
 
 
 def test_ai_null_keeps_primary_result_for_manual_completion(tmp_path,monkeypatch):
