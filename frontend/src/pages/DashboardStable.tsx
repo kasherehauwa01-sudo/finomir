@@ -50,11 +50,7 @@ export function Dashboard() {
       .catch((reason: Error) => setError(reason.message));
   }, [period, revision, tagIds, storeIds, partnerIds, counterpartyIds, paymentStatus]);
 
-  function toggle(selected: string[], id: string, update: (value: string[]) => void) {
-    update(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
-  }
-  function togglePartner(id: string) {
-    const next = partnerIds.includes(id) ? partnerIds.filter((item) => item !== id) : [...partnerIds, id];
+  function updatePartners(next: string[]) {
     setPartnerIds(next);
     setCounterpartyIds((current) => current.filter((counterpartyId) => counterparties.some((item) => item.id === counterpartyId && (!next.length || Boolean(item.partner_id && next.includes(item.partner_id))))));
   }

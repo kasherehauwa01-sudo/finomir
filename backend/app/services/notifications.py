@@ -11,6 +11,8 @@ from app.services.email import load_attachment,send_email
 logger=logging.getLogger(__name__)
 DEFAULT_SUBJECT="В бухгалтерию. Счет на оплату. {{invoice_amount}} ₽"
 DEFAULT_BODY="""Прошу переслать счет в бухгалтерию.\n\nУслуга: {{service_name}}\nСумма счета: {{invoice_amount}} ₽\n\nПлатеж относится к магазинам:\n\n{{stores}}\n\nСчет на оплату прикреплен к письму."""
+INTERNET_STORE_NAME="Интернет (w)"
+INTERNET_STORE_BODY="""Прошу переслать счет в бухгалтерию.\n\nУслуга: {{service_name}}\nСумма счета: {{invoice_amount}} ₽\n\nПлатеж относится к ИП Куприянова О.В.:\n\nСчет на оплату прикреплен к письму."""
 VARIABLES=["invoice_amount","invoice_number","invoice_date","service_name","counterparty","partner","stores"]
 def ensure_scenario(db:Session)->NotificationScenario:
  item=db.scalar(select(NotificationScenario).where(NotificationScenario.code=="new_invoice"))
@@ -19,6 +21,8 @@ def ensure_scenario(db:Session)->NotificationScenario:
 def render(template:str,values:dict)->str:
  for key,value in values.items(): template=template.replace("{{"+key+"}}",str(value))
  return template
+def body_template_for_stores(default_template:str,stores:list[str])->str:
+ return INTERNET_STORE_BODY if any(name.strip().casefold()==INTERNET_STORE_NAME.casefold() for name in stores) else default_template
 def money(value:Decimal)->str:return f"{value:,.2f}".replace(","," ").replace(".",",")
 def notify_new_invoice(document_id:UUID,db:Session)->None:
  if db.scalar(select(NotificationLog).where(NotificationLog.notification_type=="new_invoice",NotificationLog.document_id==document_id)): return
@@ -27,7 +31,7 @@ def notify_new_invoice(document_id:UUID,db:Session)->None:
  expense=db.scalar(select(Expense).where(Expense.id==document.expense_id).options(selectinload(Expense.allocations).selectinload(Allocation.store),selectinload(Expense.partner),selectinload(Expense.counterparty),selectinload(Expense.invoices)))
  invoice=next((item for item in sorted(expense.invoices,key=lambda x:x.created_at,reverse=True) if not item.deleted_at),None); recipients=list(scenario.recipients or []); amount=invoice.amount if invoice else Decimal(0)
  stores=[item.store.name for item in expense.allocations]; stores_text='\n'.join(f"- {name}{';' if index<len(stores)-1 else '.'}" for index,name in enumerate(stores)) or "- Магазины не указаны."
- values={"invoice_amount":money(amount),"invoice_number":invoice.invoice_number if invoice else "","invoice_date":invoice.invoice_date.strftime("%d.%m.%Y") if invoice else "","service_name":expense.service_name,"counterparty":expense.counterparty.full_name,"partner":expense.partner.name,"stores":stores_text}; subject=render(scenario.subject_template,values); body=render(scenario.body_template,values)
+ values={"invoice_amount":money(amount),"invoice_number":invoice.invoice_number if invoice else "","invoice_date":invoice.invoice_date.strftime("%d.%m.%Y") if invoice else "","service_name":expense.service_name,"counterparty":expense.counterparty.full_name,"partner":expense.partner.name,"stores":stores_text}; subject=render(scenario.subject_template,values); body=render(body_template_for_stores(scenario.body_template,stores),values)
  log=NotificationLog(notification_type="new_invoice",status="error",recipients=recipients,subject=subject,body=body,expense_id=expense.id,document_id=document.id,invoice_id=invoice.id if invoice else None,original_filename=document.original_filename,attachment_present=False,attachment_size=document.file_size,created_at=datetime.now(timezone.utc)); db.add(log)
  settings=None; smtp_attempted=False
  try:
