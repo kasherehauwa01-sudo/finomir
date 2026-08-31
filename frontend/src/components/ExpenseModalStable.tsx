@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import { StorePresetLinks } from './StorePresetLinks';
 import { api } from '../api/client';
 import type { Counterparty, OCRResponse, Partner, Store, Tag } from '../types';
 import type { StorePreset } from '../types';
@@ -84,6 +85,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [preview, setPreview] = useState('');
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
+  const [aiLogId, setAiLogId] = useState<string | null>(null);
+  const [sources, setSources] = useState<Record<string, OCRSource>>({});
   const [paymentAmount, setPaymentAmount] = useState('');
   const [invoicePayment, setInvoicePayment] = useState(true);
   const [paymentDate, setPaymentDate] = useState(today);
@@ -131,12 +134,16 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
       setRecipient(response.fields.recipient.value ?? ''); setInn(response.fields.inn.value ?? ''); setKpp(response.fields.kpp.value ?? '');
       setOcrConfidence(Object.fromEntries(Object.entries(response.fields).map(([key, field]) => [key, field.confidence])));
       setOcrDocumentId(response.document_id);
+      setServiceName(response.fields.service_name.value ?? '');
+      setAiLogId(response.ai_fallback.log_id);
+      setSources({partner:response.partner.source,counterparty:response.counterparty.source,service_name:response.fields.service_name.source ?? 'original',invoice_number:response.fields.invoice_number.source ?? 'original',invoice_date:response.fields.invoice_date.source ?? 'original',amount:response.fields.amount.source ?? 'original'});
       const counterparty = counterparties.find((item) => item.id === response.counterparty.id);
       if (counterparty?.partner_id) {
         setCounterpartyId(counterparty.id);
         setPartnerId(counterparty.partner_id);
       }
-      setMessage(response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : 'Контрагент с таким ИНН не найден. После выбора партнера он будет добавлен автоматически при сохранении.');
+      if (response.partner.id) setPartnerId(response.partner.id);
+      setMessage(response.ai_fallback.error ? `${response.ai_fallback.error}. Проверьте и заполните недостающие поля вручную.` : response.counterparty.matched ? `Найден контрагент: ${response.counterparty.name}, ИНН ${response.fields.inn.value}` : `Контрагент не сопоставлен${response.counterparty.suggestion ? ` (предложение: ${response.counterparty.suggestion})` : ''}. Выберите запись вручную; автоматически она не создаётся.`);
       setOcrReviewed(true);
       setMode('manual');
     } catch (error) {
@@ -188,21 +195,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setBusy(true);
     setMessage('Сохраняем расход…');
     try {
-      let selectedCounterpartyId = counterpartyId;
-      if (!selectedCounterpartyId && ocrReviewed && partnerId && recipient.trim()) {
-        const digits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
-        const existing = counterparties.find((item) => item.partner_id === partnerId && digits(item.inn) === digits(inn) && digits(inn));
-        if (existing) selectedCounterpartyId = existing.id;
-        else {
-          const created = await api<Counterparty>('/counterparties', {
-            method: 'POST',
-            body: JSON.stringify({ partner_id: partnerId, full_name: recipient.trim(), entity_type: recipient.trim().toUpperCase().startsWith('ИП ') ? 'entrepreneur' : 'company', inn: inn.trim() || null, kpp: kpp.trim() || null }),
-          });
-          setCounterparties((current) => [...current, created]);
-          setCounterpartyId(created.id);
-          selectedCounterpartyId = created.id;
-        }
-      }
+      const selectedCounterpartyId = counterpartyId;
       const expense = await api<{ id: string }>('/expenses', {
         method: 'POST',
         body: JSON.stringify({
@@ -210,6 +203,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           expense_month: month, expense_year: year,
           allocations: allocations.filter((item) => item.store_id).map((item) => ({ ...item, amount: item.amount || '0' })),
           tag_ids: tagIds,
+          ai_log_id: aiLogId,
         }),
       });
       const submittedInvoiceAmount = invoiceAmountForSubmission(invoicePayment, invoiceAmount, paymentAmount);
@@ -260,6 +254,8 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
     setTagIds((current) => singleExpenseTag(current, tagId));
   }
 
+  const sourceBadge = (field: string) => ocrReviewed && <small className={`source-badge source-badge--${sources[field] ?? 'manual'}`}>{sources[field] === 'ai' ? 'ИИ' : sources[field] === 'original' ? 'Распознано' : 'Вручную'}</small>;
+
   return <div className="overlay" role="dialog" aria-modal="true">
     <section className={`modal expense-modal ${mode === 'manual' && ocrReviewed && preview ? 'ocr-completion' : ''}`}>
       <button className="close" type="button" onClick={requestClose} aria-label="Закрыть">×</button>
@@ -280,7 +276,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
         <button type="button" className="link" onClick={createPartner}>+ Новый партнер</button>
         <SearchSelect label="Контрагент" value={counterpartyId} placeholder={ocrReviewed && recipient.trim() ? 'Будет создан автоматически после сохранения' : 'Выберите контрагента'} searchPlaceholder="Поиск по названию или ИНН" options={availableCounterparties.map((item) => ({ id: item.id, label: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} onChange={setCounterpartyId} />
         <button type="button" className="link" onClick={createCounterparty}>+ Новый контрагент</button>
-        <label>Услуга / товар<input required value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Например, наружная реклама" /></label>
+        <label>Услуга / товар {sourceBadge('service_name')}<input required value={serviceName} onChange={(event) => {setServiceName(event.target.value);setSources((x)=>({...x,service_name:'manual'}));}} placeholder="Например, наружная реклама" /></label>
         <div className="row"><label>Месяц<input required type="number" min="1" max="12" value={month} onChange={(event) => setMonth(Number(event.target.value))} /></label><label>Год<input required type="number" min="2000" max="2200" value={year} onChange={(event) => setYear(Number(event.target.value))} /></label></div>
         <fieldset><legend>Счет и оплата</legend>
           <label className="switch-field invoice-payment-switch"><input type="checkbox" checked={invoicePayment} onChange={(event) => { const checked = event.target.checked; setInvoicePayment(checked); if (checked && !paymentAmount) setPaymentAmount(invoiceAmount); }} /><span>Оплата по счету</span></label>

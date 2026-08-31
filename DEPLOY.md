@@ -141,6 +141,34 @@ cd /var/www/html/vr/finomir
 SKIP_GIT_PULL=1 ./scripts/update.sh
 ```
 
+## Отправка счета в бухгалтерию
+
+Заполните в production `.env` параметры SMTP и адрес бухгалтерии:
+
+```dotenv
+SMTP_HOST=smtp.example.ru
+SMTP_PORT=587
+SMTP_USERNAME=finomir@example.ru
+SMTP_PASSWORD=change-me
+SMTP_FROM=finomir@example.ru
+SMTP_STARTTLS=true
+SMTP_TIMEOUT_SECONDS=20
+ACCOUNTING_EMAIL_TO=accounting@example.ru
+```
+
+### Резервное распознавание OpenAI
+
+OpenAI не заменяет PaddleOCR и вызывается только при неполном результате основного распознавания. Перед сохранением API-ключа через «Настройки → API ИИ» задайте в `.env` отдельную случайную серверную фразу:
+
+```env
+AI_SETTINGS_ENCRYPTION_KEY=replace-with-a-long-random-server-secret
+OPENAI_TIMEOUT_SECONDS=45
+```
+
+Значение `AI_SETTINGS_ENCRYPTION_KEY` нельзя менять после сохранения API-ключа: оно используется для его шифрования. Сам OpenAI API-ключ хранится в PostgreSQL только в зашифрованном виде и никогда не возвращается frontend. После обновления выполните `docker compose run --rm backend alembic upgrade head` и пересоздайте backend-контейнер.
+
+Письмо отправляется после создания счета, если документ счета уже прикреплен к расходу. Ошибка SMTP записывается в `docker compose logs backend`, но не откатывает сохраненную финансовую запись. После изменения `.env` пересоздайте backend: `docker compose up -d --force-recreate backend`.
+
 ## Backup и restore
 Backup хранится снаружи контейнеров: `BACKUP_DIR=/srv/backups/finomir ./scripts/backup.sh`. Для восстановления остановите запись в сервис, затем:
 ```bash

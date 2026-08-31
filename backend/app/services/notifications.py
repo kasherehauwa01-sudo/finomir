@@ -1,4 +1,7 @@
 import logging
+import mimetypes
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime,timezone
 from decimal import Decimal
 from pathlib import Path
@@ -7,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session,selectinload
 from app.models import Allocation,Document,Expense,Invoice,NotificationLog,NotificationScenario,SMTPSetting
 from app.services.email import load_attachment,send_email
+from app.config import Settings
 
 logger=logging.getLogger(__name__)
 DEFAULT_SUBJECT="В бухгалтерию. Счет на оплату. {{invoice_amount}} ₽"

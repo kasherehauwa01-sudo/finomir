@@ -5,6 +5,7 @@ from app.services.duplicates import normalize_inn,normalize_number
 from app.services.storage import validate_file
 from app.services.ocr.parser import RussianInvoiceParser,validate_inn
 from app.api.routes import ExpenseBulkUpdateIn,router
+from app.services.notifications import accounting_message
 def test_payments(): assert invoice_totals(Decimal("100000"),[Decimal("40000"),Decimal("35000")])==(Decimal("75000"),Decimal("25000"))
 def test_multiple_invoices(): assert expense_totals([(Decimal("100"),[Decimal("25")]),(Decimal("50"),[Decimal("50")])])==(Decimal("150"),Decimal("75"),Decimal("75"))
 def test_allocations(): assert allocation_totals(Decimal("100000"),[Decimal("40000"),Decimal("35000"),Decimal("25000")])==(Decimal("100000"),Decimal("0"))
@@ -22,6 +23,16 @@ def test_bulk_update_distinguishes_omitted_fields():
 def test_bulk_update_route_precedes_expense_uuid_route():
  put_paths=[route.path for route in router.routes if "PUT" in getattr(route,"methods",set()) and route.path.startswith("/expenses/")]
  assert put_paths.index("/expenses/bulk/update")<put_paths.index("/expenses/{expense_id}")
+
+def test_accounting_message_lists_regular_stores():
+ message=accounting_message("Печать",Decimal("6200"),["Козловская","Авиаторов"])
+ assert "Платеж относится к магазинам:\n\nКозловская\nАвиаторов" in message
+ assert "Сумма счета: 6200.00 ₽" in message
+
+def test_accounting_message_for_internet_store_uses_entrepreneur():
+ message=accounting_message("Реклама",Decimal("7140"),["Интернет (w)"])
+ assert "Платеж относится к ИП Куприянова О.В.:" in message
+ assert "Платеж относится к магазинам" not in message
 
 @pytest.mark.parametrize(("text","number","invoice_date","amount"),[
  ('Счет № 123 от 15.08.2026\nИтого 12 500,00', '123','2026-08-15','12500.00'),
