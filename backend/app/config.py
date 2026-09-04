@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 60
     ocr_api_key: str | None = None
     smtp_encryption_key: str | None = None
+    login_pin: str = "8852285"
+    auth_secret: str = "change-this-secret-in-production"
+    auth_origin: str = "http://localhost"
+    auth_rp_id: str = "localhost"
     ocr_service_url: str = "http://ocr:8001"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     @field_validator("base_path")
