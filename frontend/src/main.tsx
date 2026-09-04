@@ -8,13 +8,14 @@ import { DirectoryCard } from './pages/DirectoryCardStable';
 import { Expenses } from './pages/ExpensesStable';
 import { ExpenseCard } from './pages/ExpenseCard';
 import { Settings } from './pages/Settings';
+import { AuthGate } from './components/AuthGate';
 import './styles.css';
 
 declare const __BASE_PATH__: string;
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter basename={__BASE_PATH__}>
+    <AuthGate><BrowserRouter basename={__BASE_PATH__}>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
@@ -27,7 +28,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </BrowserRouter></AuthGate>
   </React.StrictMode>,
 );
 

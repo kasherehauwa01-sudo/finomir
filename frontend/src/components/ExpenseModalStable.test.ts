@@ -25,8 +25,8 @@ describe('выбор тега расхода', () => {
 });
 
 describe('тип оплаты расхода', () => {
-  it('для счета использует сумму счета, а для оплаты без счета — сумму платежа', () => {
+  it('использует стоимость услуги как общую сумму и для счета, и для наличных', () => {
     expect(invoiceAmountForSubmission(true, '1500', '1000')).toBe('1500');
-    expect(invoiceAmountForSubmission(false, '', '1000')).toBe('1000');
+    expect(invoiceAmountForSubmission(false, '1500', '1000')).toBe('1500');
   });
 });
