@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModalStable';
 import { buildExpenseIdsQuery, useExpenses } from '../hooks/useExpenses';
@@ -24,13 +24,15 @@ export const selectAllRowsLabel = (total: number) => `Выбрать все ${to
 
 export function Expenses() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialPaymentStatus = searchParams.get('payment_status') === 'unpaid' ? 'unpaid' : 'all';
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(initialPaymentStatus === 'unpaid');
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [period, setPeriod] = useState('');
-  const [paymentStatus, setPaymentStatus] = useState('all');
+  const [paymentStatus, setPaymentStatus] = useState(initialPaymentStatus);
   const [partnerIds, setPartnerIds] = useState<string[]>([]);
   const [counterpartyIds, setCounterpartyIds] = useState<string[]>([]);
   const [storeIds, setStoreIds] = useState<string[]>([]);
