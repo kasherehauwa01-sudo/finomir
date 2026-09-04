@@ -1,4 +1,4 @@
-from datetime import date,datetime,timezone
+from datetime import date,datetime,timedelta,timezone
 import logging
 from decimal import Decimal
 from io import BytesIO
@@ -47,14 +47,14 @@ def _redistribute_payments(expense_id:UUID,db:Session):
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
 @router.get("/dashboard")
-def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",db:Session=Depends(get_db)):
+def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),detail:Literal["week","month","quarter","year"]="month",tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
  q=select(Expense).where(Expense.deleted_at.is_(None),Expense.expense_year==today.year,Expense.expense_month>=start_month,Expense.expense_month<=(start_month+2 if period=="quarter" else today.month if period=="month" else 12)).options(selectinload(Expense.invoices).selectinload(Invoice.payments),selectinload(Expense.tags))
  if tag_ids: q=q.where(Expense.tags.any(Tag.id.in_(tag_ids)))
  if store_ids: q=q.where(Expense.allocations.any(Allocation.store_id.in_(store_ids)))
  if partner_ids:q=q.where(Expense.partner_id.in_(partner_ids))
  if counterparty_ids:q=q.where(Expense.counterparty_id.in_(counterparty_ids))
- source_items=db.scalars(q).unique().all(); items=[]; invoice_total=paid_total=Decimal(0); tag_totals={}
+ source_items=db.scalars(q).unique().all(); items=[]; invoice_total=paid_total=Decimal(0); tag_totals={}; expense_trend={}
  for expense in source_items:
   expense_total=Decimal(0)
   expense_paid=Decimal(0)
@@ -64,10 +64,19 @@ def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),tag_ids
   remaining=expense_total-expense_paid
   if payment_status=="paid" and remaining>0 or payment_status=="unpaid" and remaining<=0:continue
   items.append(expense); invoice_total+=expense_total; paid_total+=expense_paid
+  for invoice in expense.invoices:
+   if invoice.deleted_at: continue
+   invoice_day=invoice.invoice_date
+   if detail=="week":
+    week_start=invoice_day-timedelta(days=invoice_day.weekday()); key=week_start.isoformat(); label=f"с {week_start:%d.%m}"
+   elif detail=="quarter": key=f"{invoice_day.year}-Q{(invoice_day.month-1)//3+1}"; label=f"{(invoice_day.month-1)//3+1} кв. {invoice_day.year}"
+   elif detail=="year": key=str(invoice_day.year); label=key
+   else: key=f"{invoice_day.year}-{invoice_day.month:02d}"; label=invoice_day.strftime("%m.%Y")
+   bucket=expense_trend.setdefault(key,{"label":label,"amount":Decimal(0)}); bucket["amount"]+=invoice.amount
   labels=[tag.name for tag in expense.tags] or ["Без тега"]
   for label in labels:
    current=tag_totals.setdefault(label,{"amount":Decimal(0),"expense_count":0}); current["amount"]+=expense_total; current["expense_count"]+=1
- return {"invoice_total":invoice_total,"paid_total":paid_total,"remaining_total":invoice_total-paid_total,"expense_count":len(items),"period":period,"tag_totals":[{"tag":tag,"amount":value["amount"],"expense_count":value["expense_count"]} for tag,value in sorted(tag_totals.items(),key=lambda item:item[1]["amount"],reverse=True)]}
+ return {"invoice_total":invoice_total,"paid_total":paid_total,"remaining_total":invoice_total-paid_total,"expense_count":len(items),"period":period,"expense_trend":[{"period":key,**value} for key,value in sorted(expense_trend.items())],"tag_totals":[{"tag":tag,"amount":value["amount"],"expense_count":value["expense_count"]} for tag,value in sorted(tag_totals.items(),key=lambda item:item[1]["amount"],reverse=True)]}
 @router.get("/partners")
 def partners(search:str|None=None,db:Session=Depends(get_db)):
  q=select(Partner).where(Partner.deleted_at.is_(None)); q=q.where(Partner.name.ilike(f"%{search}%")) if search else q
