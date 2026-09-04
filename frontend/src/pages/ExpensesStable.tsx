@@ -1,14 +1,15 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { ExpenseModal } from '../components/ExpenseModalStable';
 import { buildExpenseIdsQuery, useExpenses } from '../hooks/useExpenses';
-import type { Counterparty, Partner, Store, Tag } from '../types';
+import type { Counterparty, Partner, Store, StorePreset, Tag } from '../types';
 import { money } from '../utils/format';
 import { NotificationStatus } from '../components/NotificationStatus';
 import { FilterTagList } from '../components/FilterTagList';
 import { compatibleCounterpartyIds } from '../utils/filterSelection';
 import { SearchCheckboxFilter } from '../components/SearchCheckboxFilter';
+import { StorePresetLinks } from '../components/StorePresetLinks';
 
 // Реестр использует один набор состояний selectedIds/bulk* и локальные
 // period/paymentStatus. Это предотвращает повторное смешение двух реализаций
@@ -24,13 +25,15 @@ export const selectAllRowsLabel = (total: number) => `Выбрать все ${to
 
 export function Expenses() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialPaymentStatus = searchParams.get('payment_status') === 'unpaid' ? 'unpaid' : 'all';
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(initialPaymentStatus === 'unpaid');
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [period, setPeriod] = useState('');
-  const [paymentStatus, setPaymentStatus] = useState('all');
+  const [paymentStatus, setPaymentStatus] = useState(initialPaymentStatus);
   const [partnerIds, setPartnerIds] = useState<string[]>([]);
   const [counterpartyIds, setCounterpartyIds] = useState<string[]>([]);
   const [storeIds, setStoreIds] = useState<string[]>([]);
@@ -57,6 +60,7 @@ export function Expenses() {
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [presets, setPresets] = useState<StorePreset[]>([]);
   const filters = useMemo(() => ({
     search,
     period, payment_status: paymentStatus, partner_ids: partnerIds, counterparty_ids: counterpartyIds,
@@ -68,8 +72,8 @@ export function Expenses() {
   const { data, error, loading } = useExpenses(filters, page, revision);
 
   useEffect(() => {
-    Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Tag[]>('/tags'), api<Store[]>('/stores')])
-      .then(([partnerItems, counterpartyItems, tagItems, storeItems]) => { setPartners(partnerItems); setCounterparties(counterpartyItems); setTags(tagItems); setStores(storeItems); })
+    Promise.all([api<Partner[]>('/partners'), api<Counterparty[]>('/counterparties'), api<Tag[]>('/tags'), api<Store[]>('/stores'), api<StorePreset[]>('/store-presets')])
+      .then(([partnerItems, counterpartyItems, tagItems, storeItems, presetItems]) => { setPartners(partnerItems); setCounterparties(counterpartyItems); setTags(tagItems); setStores(storeItems); setPresets(presetItems); })
       .catch((reason: Error) => setBulkError(reason.message));
   }, []);
 
@@ -150,7 +154,7 @@ export function Expenses() {
     </div>
     {selectedIds.length > 0 && <div className="bulk-bar"><b>Выбрано: {selectedIds.length}</b><button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button><div className="bulk-bar__actions"><button type="button" className="primary" disabled={deleteBusy || selectingAll} onClick={() => setBulkOpen(true)}>Изменить выбранные</button><button type="button" className="bulk-delete" disabled={deleteBusy || selectingAll} onClick={() => void deleteSelected()}>{deleteBusy ? 'Удаляем…' : 'Удалить выбранные'}</button>{allVisibleSelected && data && selectedIds.length < data.total && <button type="button" className="select-all-rows" disabled={selectingAll} onClick={() => void selectAllRows()}>{selectingAll ? 'Выбираем…' : selectAllRowsLabel(data.total)}</button>}</div></div>}
     {bulkError && !bulkOpen && <div className="notice error" role="alert">{bulkError}</div>}
-    {filtersOpen && <section className="toolbar-panel expense-filters"><div className="filter-grid"><label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }} /></label><label>Статус оплаты<select value={paymentStatus} onChange={(event) => { setPaymentStatus(event.target.value); setPage(1); }}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label><label>Сумма от<input type="number" min="0" value={amountFrom} onChange={(event) => setAmountFrom(event.target.value)} /></label><label>Сумма до<input type="number" min="0" value={amountTo} onChange={(event) => setAmountTo(event.target.value)} /></label><label>Дата счета от<input type="date" value={invoiceDateFrom} onChange={(event) => setInvoiceDateFrom(event.target.value)} /></label><label>Дата счета до<input type="date" value={invoiceDateTo} onChange={(event) => setInvoiceDateTo(event.target.value)} /></label><label>Документ счета<select value={invoiceDocument} onChange={(event) => setInvoiceDocument(event.target.value)}><option value="all">Любой</option><option value="yes">Загружен</option><option value="no">Не загружен</option><option value="cash">Наличные</option></select></label><label>Закрывающий документ<select value={closingDocument} onChange={(event) => setClosingDocument(event.target.value)}><option value="all">Любой</option><option value="yes">Загружен</option><option value="no">Не загружен</option></select></label></div><SearchCheckboxFilter label="Партнеры" options={partners.map((item) => ({ id: item.id, name: item.name }))} selectedIds={partnerIds} onChange={updatePartnerFilter} searchPlaceholder="Поиск партнера" emptyText="В справочнике пока нет партнеров." /><SearchCheckboxFilter label="Контрагенты" options={counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => ({ id: item.id, name: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} selectedIds={counterpartyIds} onChange={updateCounterpartyFilter} searchPlaceholder="Поиск по названию или ИНН" emptyText="Нет доступных контрагентов." /><div className="relation-field"><b>Магазины</b><FilterTagList items={stores} selectedIds={storeIds} onChange={(ids) => { setStoreIds(ids); setPage(1); setSelectedIds([]); }} emptyText="В справочнике пока нет магазинов." /></div><div className="relation-field"><b>Теги</b><FilterTagList items={tags} selectedIds={tagIds} onChange={(ids) => { setTagIds(ids); setPage(1); setSelectedIds([]); }} emptyText="В справочнике пока нет тегов." /></div><button type="button" className="link" onClick={resetFilters}>Сбросить все фильтры</button></section>}
+    {filtersOpen && <section className="toolbar-panel expense-filters"><div className="filter-grid"><label>Период<input type="text" inputMode="numeric" placeholder="ММ.ГГГГ" value={period} onChange={(event) => { setPeriod(event.target.value); setPage(1); }} /></label><label>Статус оплаты<select value={paymentStatus} onChange={(event) => { setPaymentStatus(event.target.value); setPage(1); }}><option value="all">Все</option><option value="paid">Оплачено</option><option value="unpaid">Есть остаток</option></select></label><fieldset className="range-filter"><legend>Сумма</legend><label>От<input type="number" min="0" value={amountFrom} onChange={(event) => setAmountFrom(event.target.value)} /></label><label>До<input type="number" min="0" value={amountTo} onChange={(event) => setAmountTo(event.target.value)} /></label></fieldset><fieldset className="range-filter"><legend>Дата счета</legend><label>От<input type="date" value={invoiceDateFrom} onChange={(event) => setInvoiceDateFrom(event.target.value)} /></label><label>До<input type="date" value={invoiceDateTo} onChange={(event) => setInvoiceDateTo(event.target.value)} /></label></fieldset><label>Документ счета<select value={invoiceDocument} onChange={(event) => setInvoiceDocument(event.target.value)}><option value="all">Любой</option><option value="yes">Загружен</option><option value="no">Не загружен</option><option value="cash">Наличные</option></select></label><label>Закрывающий документ<select value={closingDocument} onChange={(event) => setClosingDocument(event.target.value)}><option value="all">Любой</option><option value="yes">Загружен</option><option value="no">Не загружен</option></select></label></div><div className="party-filter-row"><SearchCheckboxFilter label="Партнеры" options={partners.map((item) => ({ id: item.id, name: item.name }))} selectedIds={partnerIds} onChange={updatePartnerFilter} searchPlaceholder="Поиск партнера" emptyText="В справочнике пока нет партнеров." /><SearchCheckboxFilter label="Контрагенты" options={counterparties.filter((item) => !partnerIds.length || Boolean(item.partner_id&&partnerIds.includes(item.partner_id))).map((item) => ({ id: item.id, name: item.full_name, search: `${item.full_name} ${item.inn ?? ''}` }))} selectedIds={counterpartyIds} onChange={updateCounterpartyFilter} searchPlaceholder="Поиск по названию или ИНН" emptyText="Нет доступных контрагентов." /></div><div className="relation-field"><b>Магазины</b><StorePresetLinks presets={presets} onSelect={(ids) => { setStoreIds(ids); setPage(1); setSelectedIds([]); }} /><FilterTagList items={stores} selectedIds={storeIds} onChange={(ids) => { setStoreIds(ids); setPage(1); setSelectedIds([]); }} emptyText="В справочнике пока нет магазинов." /></div><div className="relation-field"><b>Теги</b><FilterTagList items={tags} selectedIds={tagIds} onChange={(ids) => { setTagIds(ids); setPage(1); setSelectedIds([]); }} emptyText="В справочнике пока нет тегов." /></div><button type="button" className="link" onClick={resetFilters}>Сбросить все фильтры</button></section>}
     {columnsOpen && <section className="toolbar-panel columns-panel">{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={visible.includes(key)} disabled={visible.length === 1 && visible.includes(key)} onChange={() => setVisible((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</section>}
     {loading ? <div className="state">Загружаем расходы…</div> : error ? <div className="state error">Нет соединения с сервером. {error}</div> : !items.length ? <section className="empty"><h2>{hasActiveFilters ? 'Ничего не найдено' : 'Расходов пока нет'}</h2><p>{hasActiveFilters ? 'Измените запрос или сбросьте фильтры.' : 'Добавьте первый расход или загрузите счет.'}</p></section> : <div className="table-wrap"><table><thead><tr><th className="select-cell"><input type="checkbox" aria-label="Выбрать все расходы на странице" checked={allVisibleSelected} onChange={toggleVisible} /></th>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead><tbody>{items.map((item) => <tr className="clickable-row" tabIndex={0} key={item.id} onClick={() => navigate(`/expenses/${item.id}`)} onKeyDown={(event) => event.key === 'Enter' && navigate(`/expenses/${item.id}`)}><td className="select-cell" data-label="Выбрать" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Выбрать расход ${item.counterparty}`} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item.id)} /></td>{columns.filter(([key]) => visible.includes(key)).map(([key, label]) => <td key={key} data-label={label}>{renderCell(item, key)}</td>)}</tr>)}</tbody></table></div>}
     {data && data.total > data.page_size && <div className="pagination"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>Назад</button><span>Страница {page}</span><button disabled={page * data.page_size >= data.total} onClick={() => setPage((value) => value + 1)}>Далее</button></div>}
