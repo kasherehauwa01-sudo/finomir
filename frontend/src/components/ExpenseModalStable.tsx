@@ -18,7 +18,9 @@ export const partnerDefaultTagIds = (partners: Partner[], partnerId: string) => 
   const tagId = partners.find((item) => item.id === partnerId)?.tag_id;
   return tagId ? [tagId] : [];
 };
-export const invoiceAmountForSubmission = (invoicePayment: boolean, invoiceAmount: string, paymentAmount: string) => invoicePayment ? invoiceAmount : paymentAmount;
+// И для счета, и для наличной оплаты стоимость услуги хранится как сумма счета.
+// Благодаря этому несколько платежей уменьшают остаток от полной стоимости.
+export const invoiceAmountForSubmission = (_invoicePayment: boolean, invoiceAmount: string, _paymentAmount: string) => invoiceAmount;
 
 type SearchOption = { id: string; label: string; search: string };
 export const filterSearchOptions = (options: SearchOption[], search: string, selectedId: string) => {
@@ -295,7 +297,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           {invoicePayment ? <>
             <div className="row"><label>№ счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
             <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
-          </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
+          </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Стоимость услуги / товара<input required type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
           <StorePresetLinks presets={presets} onSelect={(storeIds) => setAllocations(storeIds.map((storeId) => ({ store_id: storeId, amount: '0' })))} />

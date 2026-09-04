@@ -31,6 +31,8 @@ class Invoice(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
  __table_args__=(CheckConstraint("amount >= 0"),CheckConstraint("vat_amount is null or vat_amount >= 0"),Index("ix_invoice_duplicate","invoice_number","invoice_date","amount"))
 class Payment(Base,UUIDMixin,TimestampMixin,SoftDeleteMixin):
  __tablename__="payments"; invoice_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("invoices.id"),index=True); payment_date:Mapped[date]=mapped_column(Date,index=True); amount:Mapped[Decimal]=mapped_column(Numeric(15,2)); comment:Mapped[str|None]=mapped_column(Text); invoice:Mapped[Invoice]=relationship(back_populates="payments"); __table_args__=(CheckConstraint("amount >= 0"),)
+class WebAuthnCredential(Base,UUIDMixin,TimestampMixin):
+ __tablename__="webauthn_credentials"; credential_id:Mapped[str]=mapped_column(String(1024),unique=True,index=True); public_key:Mapped[bytes]=mapped_column(); sign_count:Mapped[int]=mapped_column(Integer,default=0); device_name:Mapped[str]=mapped_column(String(200),default="Мобильное устройство")
 class Allocation(Base,UUIDMixin):
  __tablename__="expense_store_allocations"; expense_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("expenses.id"),index=True); store_id:Mapped[uuid.UUID]=mapped_column(ForeignKey("stores.id"),index=True); amount:Mapped[Decimal]=mapped_column(Numeric(15,2)); store:Mapped[Store]=relationship(); __table_args__=(UniqueConstraint("expense_id","store_id"),CheckConstraint("amount >= 0"))
 class Document(Base,UUIDMixin,SoftDeleteMixin):

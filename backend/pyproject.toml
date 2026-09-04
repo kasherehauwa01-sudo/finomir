@@ -2,7 +2,7 @@
 name = "finomir-backend"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.116,<1", "uvicorn[standard]>=0.35,<1", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.16,<2", "pydantic-settings>=2.10,<3", "python-multipart>=0.0.20,<1", "openpyxl>=3.1,<4", "xlrd>=2.0,<3", "cryptography>=44,<47", "pypdf>=5.8,<6"]
+dependencies = ["fastapi>=0.116,<1", "uvicorn[standard]>=0.35,<1", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.16,<2", "pydantic-settings>=2.10,<3", "python-multipart>=0.0.20,<1", "openpyxl>=3.1,<4", "xlrd>=2.0,<3", "cryptography>=44,<47", "pypdf>=5.8,<6", "webauthn>=2.7,<3"]
 [project.optional-dependencies]
 test = ["pytest>=8.4,<9", "httpx>=0.28,<1"]
 [tool.pytest.ini_options]
