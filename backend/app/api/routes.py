@@ -46,6 +46,17 @@ def _redistribute_payments(expense_id:UUID,db:Session):
  for allocation,amount in zip(allocations,distribute_evenly(Decimal(paid),len(allocations))): allocation.amount=amount
 @router.get("/health")
 def health(db:Session=Depends(get_db)): db.execute(text("select 1")); return {"status":"ok","database":"ok"}
+@router.get("/expenses/outstanding-total")
+def outstanding_total(db:Session=Depends(get_db)):
+ # Задолженность не зависит от периода и фильтров дашборда: учитываем все
+ # активные расходы, счета и платежи в базе.
+ expenses=db.scalars(select(Expense).where(Expense.deleted_at.is_(None)).options(selectinload(Expense.invoices).selectinload(Invoice.payments))).unique().all()
+ total=Decimal(0)
+ for expense in expenses:
+  invoices=[invoice for invoice in expense.invoices if not invoice.deleted_at]
+  _,_,remaining=expense_totals([(invoice.amount,[payment.amount for payment in invoice.payments if not payment.deleted_at]) for invoice in invoices])
+  if remaining>0: total+=remaining
+ return {"total":total}
 @router.get("/dashboard")
 def dashboard(period:str=Query("month",pattern="^(month|quarter|year)$"),detail:Literal["week","month","quarter","year"]="month",tag_ids:list[UUID]=Query(default=[]),store_ids:list[UUID]=Query(default=[]),partner_ids:list[UUID]=Query(default=[]),counterparty_ids:list[UUID]=Query(default=[]),payment_status:Literal["all","paid","unpaid"]="all",db:Session=Depends(get_db)):
  today=datetime.now(ZoneInfo(get_settings().app_timezone)).date(); start_month=today.month if period=="month" else ((today.month-1)//3)*3+1 if period=="quarter" else 1
