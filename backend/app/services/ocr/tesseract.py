@@ -7,7 +7,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from .base import OCRProvider, OCRResult
-from .parser import extract_service_name
+from .parser import RussianInvoiceParser, extract_service_name
 
 
 def _clean(value: str) -> str:
@@ -60,6 +60,9 @@ class TesseractOCRProvider(OCRProvider):
         if mime == "application/pdf":
             text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
             if text.strip():
-                return parse_invoice_text(text)
-        result = subprocess.run(["tesseract", str(Path(path)), "stdout", "-l", "rus+eng"], check=True, capture_output=True, text=True, timeout=90)
-        return parse_invoice_text(result.stdout)
+                return RussianInvoiceParser().parse(text)
+        # В backend-образе гарантированно установлен русский языковой пакет.
+        # Требование дополнительного eng приводило к полному отказу резервного
+        # OCR на серверах, где английские данные Tesseract отсутствовали.
+        result = subprocess.run(["tesseract", str(Path(path)), "stdout", "-l", "rus"], check=True, capture_output=True, text=True, timeout=90)
+        return RussianInvoiceParser().parse(result.stdout)

@@ -318,7 +318,6 @@ def attach_document(document_id:UUID,expense_id:UUID,db:Session=Depends(get_db))
  if not document or document.deleted_at: raise HTTPException(404,"Документ не найден")
  if not expense or expense.deleted_at: raise HTTPException(404,"Расход не найден")
  document.expense_id=expense_id; db.commit()
- if document.document_type=="invoice": notify_new_invoice(document.id,db)
  return {"id":document.id}
 @router.post("/expenses/{expense_id}/invoices",status_code=201)
 def add_invoice(expense_id:UUID,data:InvoiceIn,db:Session=Depends(get_db)):

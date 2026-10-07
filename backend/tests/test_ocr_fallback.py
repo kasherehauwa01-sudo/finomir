@@ -1,4 +1,5 @@
 from app.services.ocr import FallbackOCRProvider
+from app.services.ocr.tesseract import TesseractOCRProvider
 
 
 class Provider:
@@ -34,3 +35,21 @@ def test_fallback_does_not_call_local_provider_after_success():
     assert result == "результат Paddle"
     assert primary.calls == 1
     assert local.calls == 0
+
+
+def test_local_provider_only_requires_installed_russian_language(monkeypatch, tmp_path):
+    image = tmp_path / "invoice.png"
+    image.write_bytes(b"image")
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": "Счет № 15 от 01.10.2026\nВсего к оплате: 1 500,00"})()
+
+    monkeypatch.setattr("app.services.ocr.tesseract.subprocess.run", run)
+
+    result = TesseractOCRProvider().recognize(str(image), "image/png")
+
+    assert calls[0][-1] == "rus"
+    assert result.invoice_number == "15"
+    assert str(result.invoice_amount) == "1500.00"
