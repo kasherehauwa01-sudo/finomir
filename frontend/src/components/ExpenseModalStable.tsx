@@ -90,6 +90,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
   const [preview, setPreview] = useState('');
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrDocumentId, setOcrDocumentId] = useState('');
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [invoicePayment, setInvoicePayment] = useState(true);
   const [paymentDate, setPaymentDate] = useState(today);
@@ -239,6 +240,13 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           });
         }
       }
+      // При ручном вводе документ загружается только после создания расхода и
+      // счета. Backend отправляет уведомление сразу после успешной загрузки.
+      if (!ocrDocumentId && invoiceFile) {
+        const document = new FormData();
+        document.append('file', invoiceFile);
+        await api(`/expenses/${expense.id}/documents?document_type=invoice`, { method: 'POST', body: document });
+      }
       // Сначала сохраняем счет и платеж, и только затем прикрепляем OCR-документ:
       // уведомление запускается явно в конце обработки кнопки «Сохранить».
       if (ocrDocumentId) {
@@ -297,6 +305,7 @@ export function ExpenseModal({ close, onSaved = () => undefined }: Props) {
           {invoicePayment ? <>
             <div className="row"><label>№ счета<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_number < .7 && <small>⚠ Проверьте значение</small>}</label><label>Дата счета<input required={Boolean(invoiceAmount)} type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />{ocrReviewed && ocrConfidence.invoice_date < .7 && <small>⚠ Проверьте значение</small>}</label></div>
             <div className="row"><label>Сумма счета<input type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} />{ocrReviewed && ocrConfidence.amount < .7 && <small>⚠ Проверьте значение</small>}</label><label>Сумма платежа<input type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>
+            {!ocrDocumentId && <label>Файл счета<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setInvoiceFile(event.target.files?.[0] ?? null)} /><small>{invoiceFile ? `Выбран файл: ${invoiceFile.name}` : 'PDF, JPG/JPEG или PNG, не более 20 МБ'}</small></label>}
           </> : <div className="row"><label>Дата платежа<input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label>Стоимость услуги / товара<input required type="number" min="0" step="0.01" value={invoiceAmount} onChange={(event) => setInvoiceAmount(event.target.value)} /></label><label>Сумма платежа<input required type="number" min="0" step="0.01" max={invoiceAmount || undefined} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label></div>}
         </fieldset>
         <fieldset><legend>Распределение по магазинам</legend>
